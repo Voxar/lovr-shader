@@ -3,8 +3,13 @@ package.path = 'lib/share/lua/' .. version .. '/?.lua;lib/share/lua/' .. version
 package.cpath = 'lib/lib/lua/' .. version .. '/?.so;' .. package.cpath
 local pp = require('pl.pretty').dump
 
+vec3 = lovr.math.vec3
+newVec3 = lovr.math.newVec3
+newMat4 = lovr.math.newMat4
+require 'renderer'
+
 local cubemap = {}
-local cubemapSize = 256
+local cubemapSize = 32
 cubemap.textures = {
     lovr.graphics.newTexture(cubemapSize, cubemapSize, { format = "rg11b10f", stereo = false, type = "cube" }),
     lovr.graphics.newTexture(cubemapSize, cubemapSize, { format = "rg11b10f", stereo = false, type = "cube" }),
@@ -69,8 +74,9 @@ function lovr.load()
     shader:send('specularStrength', 0.5)
     shader:send('metallic', 500.0)
     shader:send('viewPos', { 0.0, 0.0, 0.0} )
-    shader:send('ambience', { 0.2, 0.2, 0.2, 1.0 })
-
+    shader:send('ambience', { 0.1, 0.1, 0.1, 1.0 })
+    -- shader:send('ambience', { 1, 1, 1, 1.0 })
+    
     shader:sendBlock('Lights', lightsBlock)
 
     depthShader = require 'fill_depth_shader'
@@ -126,6 +132,8 @@ function lovr.update(dt)
     lightsBlock:send('lightPositions', all('pos', lights) )
     lightsBlock:send('lightColors', all('color', lights) )
     lightsBlock:send('lightCount', #lights)
+    -- lightsBlock:send('lightCount', 0)
+    shader:send('time', time)
     -- makeCube()
 end
 saved = false
@@ -143,11 +151,7 @@ local function lookAt(eye, at, up)
 end
 
 function render(makingCubemap)
-    if makingCubemap then 
-        lovr.graphics.setShader()
-    else
-        lovr.graphics.setShader(shader)
-    end
+    lovr.graphics.setColor(1, 1, 1, 1)
     shader:send("reflectionStrength", makingCubemap and 0 or 1)
     lovr.graphics.setBlendMode("alpha", "premultiplied")
     lovr.graphics.clear()
@@ -159,11 +163,13 @@ function render(makingCubemap)
 
     lovr.graphics.box("fill", 1.1, 2.4, -3, 0.8, 0.5, 1, -time, 1, 1, 0)
     
-    lovr.graphics.setColor(0, 1, 0, 0.5)
+    lovr.graphics.setColor(0.3, 0.3, 0.7, 0.1)
+    shader:send("metallic", 1)
     lovr.graphics.sphere(-0.9, math.sin(time*0.9) + 1.7, 5, 0.5, -time * 0.5, 0, 1, 0)
     lovr.graphics.sphere(0, math.sin(time) + 1.7, 5.8, 0.5, -time * 0.5, 0, 1, 0)
     lovr.graphics.sphere(0.9, math.sin(time*1.1) + 1.7, 5, 0.5, -time * 0.5, 0, 1, 0)
-    
+    lovr.graphics.setColor(1, 1, 1, 1)
+    shader:send("metallic", 500)    
     if not makingCubemap then 
         lovr.graphics.setColor(1, 1, 1, 1)
         lovr.graphics.setShader(shader)
@@ -176,13 +182,73 @@ function render(makingCubemap)
     end
     model:draw()
 end
+    
+renderer = Renderer()
 
+objects = {
+    {
+        id = "sphere",
+        position = newVec3(-1.2, 1.7, -3),
+        worldTransform = newMat4(),
+        AABB = {
+            min = newVec3(-0.5, -0.5, -0.5), 
+            max = newVec3(0.5, 0.5, 0.5), 
+            radius = 0.5
+        },
+        draw = function(object, context)
+            lovr.graphics.setColor(1, 0.5, 0.5, 0.5)
+            local x, y, z = object.position:unpack()
+            lovr.graphics.sphere(x, y, z, object.AABB.radius)
+        end,
+        hasTransparency = true
+    },
+    {
+        id = "sphere",
+        position = newVec3(0, 1.7, -3),
+        worldTransform = newMat4(),
+        AABB = {
+            min = newVec3(-0.5, -0.5, -0.5), 
+            max = newVec3(0.5, 0.5, 0.5), 
+            radius = 0.5
+        },
+        draw = function(object, context)
+            lovr.graphics.setColor(0.5, 1, 0.5, 0.5)
+            local x, y, z = object.position:unpack()
+            lovr.graphics.sphere(x, y, z, object.AABB.radius)
+        end,
+        hasTransparency = true
+    },
+    {
+        id = "sphere",
+        position = newVec3(1.2, 1.7, -3),
+        worldTransform = newMat4(),
+        AABB = {
+            min = newVec3(-0.5, -0.5, -0.5), 
+            max = newVec3(0.5, 0.5, 0.5), 
+            radius = 0.5
+        },
+        draw = function(object, context)
+            lovr.graphics.setColor(0.5, 0.5, 1, 0.5)
+            local x, y, z = object.position:unpack()
+            lovr.graphics.sphere(x, y, z, object.AABB.radius)
+        end,
+        hasTransparency = true,
+    },
+}
+    
 function lovr.draw()
+    renderer:render(objects, {drawAABB = true})
+    
+    lovr.graphics.sphere(0,0,0,0.2)
+end
+
+function lovr.draw2()
     local view={lovr.graphics.getViewPose(1)}
 	local proj={lovr.graphics.getProjection(1)}
 	lovr.graphics.setProjection(1,mat4():perspective(0.1,1000,math.pi/2,1))
 	local center=vec3(0, 2.6, -3)
 	switcheroo()
+
 	for i,view in ipairs{
 		lookAt(center,center+vec3(1,0,0),vec3(0,-1,0)),
 		lookAt(center,center-vec3(1,0,0),vec3(0,-1,0)),
@@ -195,6 +261,7 @@ function lovr.draw()
 		face:setTexture(cubemap.texture,i)
 		face:renderTo(function ()
 			local r,g,b,a=lovr.graphics.getBackgroundColor()
+            -- shader:send("cubemap", cubemap.last_texture)
 			lovr.graphics.clear(r,g,b,a,1,0)
 			lovr.graphics.setViewPose(1,view,true)
             render(true)
@@ -207,7 +274,7 @@ function lovr.draw()
     render()
     if cubemap.texture then 
         lovr.graphics.setShader()
-        lovr.graphics.skybox(cubemap.texture)
+        -- lovr.graphics.skybox(cubemap.texture)
     end
 end
 

@@ -15,6 +15,7 @@
         uniform int metallic;
         uniform samplerCube cubemap;
         uniform float reflectionStrength;
+        uniform float time;
         
         mat3 cotangent_frame( vec3 N, vec3 p, vec2 uv )
         {
@@ -75,7 +76,8 @@
                 vec3 specular = specularStrength * spec * lightColor;
                 
                 lighting += diffuse + specular;
-            } 
+            }
+
             //object color
             vec4 baseColor = graphicsColor * texture(lovrDiffuseTexture, uv);
             vec4 emissive = texture(lovrEmissiveTexture, uv) * lovrEmissiveColor;
@@ -86,9 +88,11 @@
             n_vs=normalize(vTransform * (lovrNormalMatrixInversed * N));
     		vec3 i_vs=normalize(vViewDir);
             float ndi=0.04+0.96*(1.0-sqrt(max(0.0,dot(n_vs,i_vs))));
-    		vec3 refl=texture(cubemap, n_ws, -0.5).rgb * ndi * metalness;
-    		vec3 refr=texture(cubemap, lovrViewTransposed * refract(-i_vs, n_vs, 0.66)).rgb * (1. - baseColor.a);
-            vec4 reflections = (vec4(refl, 1.) + vec4(refr, 1.)) * reflectionStrength;
+            vec3 ref = reflect(normalize(-viewDir), N).xyz;
+    		vec3 refl=texture(cubemap, ref, -0.5).rgb * ndi * metalness * graphicsColor.rgb;
+            vec3 r = refract(-i_vs, n_vs, 0.66);
+    		vec3 refr=texture(cubemap, lovrViewTransposed * r).rgb * (1. - baseColor.a);
+            vec4 reflections = vec4(refl + refr, 1.) * reflectionStrength * metalness;
             
             //float fresnel = clamp(0., 1., 1 - dot(N, viewDir));
 //            return texture(lovrRoughnessTexture, uv).rrra;
@@ -100,7 +104,7 @@
          
                 if (lovrViewID == 1)             
                     //return vec4(vec3(roughness), 1.0);
-                    return vec4(refl, 1.);
+                    return vec4(vec3(time), 1.);
                 //else return vec4(N, 1);
             return (baseColor + emissive + reflections) * vec4(lighting, 1.);
         }
