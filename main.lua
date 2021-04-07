@@ -3,7 +3,58 @@ package.path = 'lib/share/lua/' .. version .. '/?.lua;lib/share/lua/' .. version
 package.cpath = 'lib/lib/lua/' .. version .. '/?.so;' .. package.cpath
 local pp = require('pl.pretty').dump
 
+local cubemap = {}
+local cubemapSize = 256
+cubemap.textures = {
+    lovr.graphics.newTexture(cubemapSize, cubemapSize, { format = "rg11b10f", stereo = false, type = "cube" }),
+    lovr.graphics.newTexture(cubemapSize, cubemapSize, { format = "rg11b10f", stereo = false, type = "cube" }),
+    index = 2,
+}
+cubemap.texture = cubemap.textures[cubemap.textures.index]
+
+cubemap.canvases = {
+    lovr.graphics.newCanvas(cubemap.textures[1]),
+    lovr.graphics.newCanvas(cubemap.textures[2]),
+    index = 2,
+}
+cubemap.canvas = cubemap.canvases[cubemap.canvases.index]
+
+local function switcheroo()
+	cubemap.last_texture = cubemap.texture
+	cubemap.textures.index = ((cubemap.textures.index + 1) % #cubemap.textures) + 1
+	cubemap.texture = cubemap.textures[cubemap.textures.index]
+	
+	cubemap.last_canvas = cubemap.canvas
+	cubemap.canvases.index = ((cubemap.canvases.index + 1) % #cubemap.canvases) + 1
+	cubemap.canvas = cubemap.canvases[cubemap.canvases.index]
+end
+
+function makeCube()
+    function make(rot, name)
+        canvas:renderTo(function()
+            lovr.graphics.push()
+            lovr.graphics.rotate(math.pi*0.5, rot:unpack())
+            lovr.graphics.translate(0, -1.7, 0)
+            render()
+            lovr.graphics.pop()
+        end)
+        -- local tex = canvas:getTexture()
+        local tex = canvas:newTextureData()
+        return tex
+--        local blob = tex:encode()
+        --lovr.filesystem.write(name .. ".png", blob:getString())        
+    end
+
+    make(cube.left, vec3(0, -1, 0), "left")
+    make(cube.right, vec3(0, 1, 0), "right")
+    make(cube.top, vec3(-1, 0, 0), "top")
+    make(cube.bottom, vec3(1, 0, 0), "bottom")
+    make(cube.front, vec3(0, 0, 0), "front")
+    make(cube.back, vec3(0, 2, 0), "back")
+end
+
 function lovr.load()
+    
     model = lovr.graphics.newModel("bkd_main room_shell.glb")
     torso = lovr.graphics.newModel("torso.glb")
     helmet = lovr.graphics.newModel("helmet.glb")
@@ -14,30 +65,41 @@ function lovr.load()
     }, { usage = 'stream'})
     
     shader = require 'shader'
-  shader:send('specularStrength', 0.5)
-  shader:send('metallic', 500.0)
-  shader:send('viewPos', { 0.0, 0.0, 0.0} )
-  shader:send('ambience', { 0.2, 0.2, 0.2, 1.0 })
-  
-  shader:sendBlock('Lights', lightsBlock)
-  
-  depthShader = require 'fill_depth_shader'
+    shader:send('specularStrength', 0.5)
+    shader:send('metallic', 500.0)
+    shader:send('viewPos', { 0.0, 0.0, 0.0} )
+    shader:send('ambience', { 0.2, 0.2, 0.2, 1.0 })
 
-  lovr.graphics.setBackgroundColor(.18, .18, .20)
-  lovr.graphics.setCullingEnabled(true)
-  
-  local width, height = lovr.headset.getDisplayDimensions()
-  canvas = lovr.graphics.newCanvas(width, height, {
-      stereo = false,
-      depth = { format = 'd16', readable = true },
-  })
+    shader:sendBlock('Lights', lightsBlock)
+
+    depthShader = require 'fill_depth_shader'
+
+    lovr.graphics.setBackgroundColor(.18, .18, .20)
+    lovr.graphics.setCullingEnabled(true)
+
+    local width, height = lovr.headset.getDisplayDimensions()
+    local size = math.max(width, height)
+    canvas = lovr.graphics.newCanvas(size, size, {
+        stereo = false,
+        depth = { format = 'd16', readable = true },
+    })
+    
+    -- cube = {
+    --     left   = lovr.graphics.newTexture(size, size, 1, {}),
+    --     right  = lovr.graphics.newTexture(size, size, 1, {}),
+    --     top    = lovr.graphics.newTexture(size, size, 1, {}),
+    --     bottom = lovr.graphics.newTexture(size, size, 1, {}),
+    --     front  = lovr.graphics.newTexture(size, size, 1, {}),
+    --     back   = lovr.graphics.newTexture(size, size, 1, {}),
+    -- }
+    -- cube.map = lovr.graphics.newTexture(cube)
 end
 
 local lights = {
-  { color = {1, 0, 0} },
-  { color = {0, 1, 0} },
-  { color = {0, 0, 1} },
-  { color = {1, 1, 1} },
+  { color = {1, 0, 0}, pos = {0, 0, 0} },
+  { color = {0, 1, 0}, pos = {0, 0, 0} },
+  { color = {0, 0, 1}, pos = {0, 0, 0} },
+  { color = {1, 1, 1}, pos = {0, 0, 0} },
 }
 
 function all(k, t)
@@ -50,29 +112,84 @@ end
 
 local time = 0
 function lovr.update(dt)
-  time = time + dt
-  for i, light in ipairs(lights) do
-    local t = time + ((math.pi*2)/#lights) * i
-    light.pos = { math.sin(t)*2, 1.7 + math.sin(t * 0.3), math.cos(t) - 3 }
-  end
-  lightsBlock:send('lightPositions', all('pos', lights) )
-  lightsBlock:send('lightColors', all('color', lights) )
-  lightsBlock:send('lightCount', #lights)
+    time = time + dt
+    for i, light in ipairs(lights) do
+        local t = time + ((math.pi*2)/#lights) * i
+        light.pos = { math.sin(t)*2, 1.7 + math.sin(t * 0.3), math.cos(t) - 3 }
+    end
+    lightsBlock:send('lightPositions', all('pos', lights) )
+    lightsBlock:send('lightColors', all('color', lights) )
+    lightsBlock:send('lightCount', #lights)
+    -- makeCube()
 end
 saved = false
-function lovr.draw()
 
-        lovr.graphics.clear()
-        lovr.graphics.setShader(shader)
-        lovr.graphics.sphere(-1.2, 1.7, -3, 0.5, -time * 0.5, 0, 1, 0)
-        -- lovr.graphics.sphere(0, 1.7, -3, 0.5)
-        torso:draw(0, 1.2, -3, 3, time*0.5, 0, 1, 0)
-        helmet:draw(0, 2.6, -3, 0.2, time*0.0, 0, 1, 0)
-        lovr.graphics.box("fill", 1.2, 1.7, -3, 0.8, 0.5, 1, -time, 1, 1, 0)
-    
-        for _, light in ipairs(lights) do
-            lovr.graphics.setColor(table.unpack(light.color))
-            lovr.graphics.sphere(light.pos[1], light.pos[2], light.pos[3], 0.1)
-        end
-        model:draw()
+local function lookAt(eye, at, up)
+	local z_axis=vec3(eye-at):normalize()
+	local x_axis=vec3(up):cross(z_axis):normalize()
+	local y_axis=vec3(z_axis):cross(x_axis)
+	return lovr.math.newMat4(
+		x_axis.x,y_axis.x,z_axis.x,0,
+		x_axis.y,y_axis.y,z_axis.y,0,
+		x_axis.z,y_axis.z,z_axis.z,0,
+		-x_axis:dot(eye),-y_axis:dot(eye),-z_axis:dot(eye),1
+	)
+end
+
+function render()
+    lovr.graphics.clear()
+    lovr.graphics.setShader(shader)
+    lovr.graphics.sphere(-1.2, 1.7, -3, 0.5, -time * 0.5, 0, 1, 0)
+    -- lovr.graphics.sphere(0, 1.7, -3, 0.5)
+    torso:draw(0, 1.2, -3, 3, time*0.5, 0, 1, 0)
+    helmet:draw(0, 2.6, -3, 0.2, time*0.5, 0, 1, 0)
+    lovr.graphics.box("fill", 1.2, 1.7, -3, 0.8, 0.5, 1, -time, 1, 1, 0)
+
+    for _, light in ipairs(lights) do
+        lovr.graphics.setColor(table.unpack(light.color))
+        lovr.graphics.sphere(light.pos[1], light.pos[2], light.pos[3], 0.1)
+    end
+    model:draw()
+end
+
+function lovr.draw()
+    local view={lovr.graphics.getViewPose(1)}
+	local proj={lovr.graphics.getProjection(1)}
+	lovr.graphics.setProjection(1,mat4():perspective(0.1,1000,math.pi/2,1))
+	local center=vec3(0,1.7,0)
+	switcheroo()
+	for i,view in ipairs{
+		lookAt(center,center+vec3(1,0,0),vec3(0,-1,0)),
+		lookAt(center,center-vec3(1,0,0),vec3(0,-1,0)),
+		lookAt(center,center+vec3(0,1,0),vec3(0,0,1)),
+		lookAt(center,center-vec3(0,1,0),vec3(0,0,-1)),
+		lookAt(center,center+vec3(0,0,1),vec3(0,-1,0)),
+		lookAt(center,center-vec3(0,0,1),vec3(0,-1,0)),
+	} do
+		local face=cubemap.canvas
+		face:setTexture(cubemap.texture,i)
+		face:renderTo(function ()
+			local r,g,b,a=lovr.graphics.getBackgroundColor()
+			lovr.graphics.clear(r,g,b,a,1,0)
+			lovr.graphics.setViewPose(1,view,true)
+            render()
+--    			draw_objects(cubemap.last_texture, true)
+		end)
+	end
+	lovr.graphics.setProjection(1,unpack(proj))
+	lovr.graphics.setViewPose(1,unpack(view))
+    shader:send("cubemap", cubemap.texture)
+    render()
+    if cubemap.texture then 
+        lovr.graphics.setShader()
+        lovr.graphics.skybox(cubemap.texture)
+    end
+end
+
+function lovr.keypressed(key, scancode, repeated)
+    if repeated then return end
+    if key == 'm' then 
+        print("making")
+        makeCube()
+    end
 end

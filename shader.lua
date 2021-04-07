@@ -3,14 +3,20 @@ return lovr.graphics.newShader(
     [[
         out vec3 FragmentPos;
         out vec3 Normal;
+        out vec3 NormalView;
         out vec3 vCameraPositionWorld;
+        out vec3 vViewDir;
         out vec3 vTangent;
+        out mat3 lovrViewTransposed;
         
         vec4 position(mat4 projection, mat4 transform, vec4 vertex) {
-            Normal = lovrNormalMatrix * lovrNormal;
+            Normal = normalize(lovrNormalMatrix * lovrNormal);
+            NormalView = mat3(lovrView)*lovrNormal;
             FragmentPos = vec3(lovrModel * vertex);
             vCameraPositionWorld = -lovrView[3].xyz * mat3(lovrView);
+            vViewDir = -(transform * vertex).xyz;
             vTangent = lovrTangent.xyz;
+            lovrViewTransposed = transpose(mat3(lovrView));
             return projection * transform * vertex;
         }
     ]],  
@@ -22,10 +28,14 @@ return lovr.graphics.newShader(
         in vec3 FragmentPos;
         in vec3 vCameraPositionWorld;
         in vec3 vTangent;
-      
+        in mat3 lovrViewTransposed;
+        in vec3 vViewDir;
+        in vec3 NormalView;
+        
         uniform vec3 viewPos;
         uniform float specularStrength;
         uniform int metallic;
+        uniform samplerCube cubemap;
         
         mat3 cotangent_frame( vec3 N, vec3 p, vec2 uv )
         {
@@ -88,6 +98,15 @@ return lovr.graphics.newShader(
             //object color
             vec4 baseColor = graphicsColor * texture(image, uv);
             
+            // cubemap reflection and refractions
+    		vec3 n_ws=N;
+    		vec3 n_vs=normalize(NormalView);
+    		vec3 i_vs=normalize(N);
+            float ndi=0.04+0.96*(1.0-sqrt(max(0.0,dot(n_vs,i_vs))));
+    		vec3 refl=texture(cubemap, N, -0.5).rgb * ndi * 0.25;
+    		vec3 refr=texture(cubemap, lovrViewTransposed * refract(-i_vs, n_vs, 0.66)).rgb * (1.0 - baseColor.a);
+            vec4 reflections = vec4(refl, 1.) + vec4(refr, 1.);
+            
             //float fresnel = clamp(0., 1., 1 - dot(N, viewDir));
 //            return texture(lovrRoughnessTexture, uv).rrra;
 //            return texture(lovrMetalnessTexture, uv);
@@ -97,7 +116,7 @@ return lovr.graphics.newShader(
 //            return texture(lovrEmissiveTexture, uv);
          
                 if (lovrViewID == 1)             return vec4(N, 1);
-            return baseColor * lighting;
+            return (baseColor + reflections) * lighting;
             return vec4(N, 1);
         }
   ]], {})
