@@ -7,11 +7,15 @@ return lovr.graphics.newShader(
         out vec3 vCameraPositionWorld;
         out vec3 vViewDir;
         out vec3 vTangent;
-        out mat3 lovrViewTransposed;
+        flat out mat3 lovrViewTransposed;
+        flat out mat3 lovrNormalMatrixInversed;
+        flat out mat3 vTransform;
         
         vec4 position(mat4 projection, mat4 transform, vec4 vertex) {
+            lovrNormalMatrixInversed = inverse(lovrNormalMatrix);
             Normal = normalize(lovrNormalMatrix * lovrNormal);
-            NormalView = mat3(lovrView)*lovrNormal;
+            NormalView = mat3(lovrTransform)*lovrNormal;
+            vTransform = mat3(lovrTransform);
             FragmentPos = vec3(lovrModel * vertex);
             vCameraPositionWorld = -lovrView[3].xyz * mat3(lovrView);
             vViewDir = -(transform * vertex).xyz;
@@ -28,14 +32,17 @@ return lovr.graphics.newShader(
         in vec3 FragmentPos;
         in vec3 vCameraPositionWorld;
         in vec3 vTangent;
-        in mat3 lovrViewTransposed;
+        flat in mat3 lovrViewTransposed;
+        flat in mat3 lovrNormalMatrixInversed;
         in vec3 vViewDir;
         in vec3 NormalView;
+        flat in mat3 vTransform;
         
         uniform vec3 viewPos;
         uniform float specularStrength;
         uniform int metallic;
         uniform samplerCube cubemap;
+        uniform float reflectionStrength;
         
         mat3 cotangent_frame( vec3 N, vec3 p, vec2 uv )
         {
@@ -66,7 +73,7 @@ return lovr.graphics.newShader(
         
         vec4 color(vec4 graphicsColor, sampler2D image, vec2 uv) {
             vec3 viewDir = normalize(vCameraPositionWorld - FragmentPos);
-            vec4 lighting = ambience;
+            vec3 lighting = ambience.rgb;
             vec4 Nmap = texture(lovrNormalTexture, uv);
             vec3 N = normalize(Normal);
             if (Nmap != vec4(1) ) {
@@ -74,38 +81,42 @@ return lovr.graphics.newShader(
 //                N = normalize(Normal + (Nmap.rgb * 2. - 1.));
             }
             
+            
+            //Metallness
+            float metalness = texture(lovrMetalnessTexture, lovrTexCoord).b * lovrMetalness;
+            float roughness = max(texture(lovrRoughnessTexture, lovrTexCoord).g * lovrRoughness, .05);
+
 
             for(int i_light = 0; i_light < lightCount; i_light++) {
                 vec3 lightPos = lightPositions[i_light].xyz;
-                vec4 lightColor = lightColors[i_light];
+                vec3 lightColor = lightColors[i_light].rgb;
                 
                 //diffuse
                 vec3 norm = normalize(N);
                 vec3 lightDir = normalize(lightPos - FragmentPos);
                 float diff = max(dot(norm, lightDir), 0.);
-                vec4 diffuse = lightColor * diff;
+                vec3 diffuse = lightColor * diff;
                 
                 // specular
                 vec3 reflectDir = reflect(-lightDir, norm);
-                float spec = pow(max(dot(viewDir, reflectDir), 0.0), metallic);
-                vec4 specular = specularStrength * spec * lightColor;
+                float spec = pow(max(dot(viewDir, reflectDir), 0.0), metallic) * metalness;
+                vec3 specular = specularStrength * spec * lightColor;
                 
-                // emissive
-                vec4 emissive = texture(lovrEmissiveTexture, uv);
-                
-                lighting += diffuse + specular + emissive * lovrEmissiveColor;
+                lighting += diffuse + specular;
             } 
             //object color
-            vec4 baseColor = graphicsColor * texture(image, uv);
+            vec4 baseColor = graphicsColor * texture(lovrDiffuseTexture, uv);
+            vec4 emissive = texture(lovrEmissiveTexture, uv) * lovrEmissiveColor;
             
             // cubemap reflection and refractions
-    		vec3 n_ws=N;
-    		vec3 n_vs=normalize(NormalView);
-    		vec3 i_vs=normalize(N);
+    		vec3 n_ws=normalize(N);
+            vec3 n_vs=normalize(NormalView);
+            n_vs=normalize(vTransform * (lovrNormalMatrixInversed * N));
+    		vec3 i_vs=normalize(vViewDir);
             float ndi=0.04+0.96*(1.0-sqrt(max(0.0,dot(n_vs,i_vs))));
-    		vec3 refl=texture(cubemap, N, -0.5).rgb * ndi * 0.25;
-    		vec3 refr=texture(cubemap, lovrViewTransposed * refract(-i_vs, n_vs, 0.66)).rgb * (1.0 - baseColor.a);
-            vec4 reflections = vec4(refl, 1.) + vec4(refr, 1.);
+    		vec3 refl=texture(cubemap, n_ws, -0.5).rgb * ndi * metalness;
+    		vec3 refr=texture(cubemap, lovrViewTransposed * refract(-i_vs, n_vs, 0.66)).rgb * (1. - baseColor.a);
+            vec4 reflections = (vec4(refl, 1.) + vec4(refr, 1.)) * reflectionStrength;
             
             //float fresnel = clamp(0., 1., 1 - dot(N, viewDir));
 //            return texture(lovrRoughnessTexture, uv).rrra;
@@ -115,8 +126,10 @@ return lovr.graphics.newShader(
 //            return texture(lovrOcclusionTexture, uv);
 //            return texture(lovrEmissiveTexture, uv);
          
-                if (lovrViewID == 1)             return vec4(N, 1);
-            return (baseColor + reflections) * lighting;
-            return vec4(N, 1);
+                if (lovrViewID == 1)             
+                    //return vec4(vec3(roughness), 1.0);
+                    return vec4(refl, 1.);
+                //else return vec4(N, 1);
+            return (baseColor + emissive + reflections) * vec4(lighting, 1.);
         }
   ]], {})

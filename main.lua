@@ -54,15 +54,16 @@ function makeCube()
 end
 
 function lovr.load()
-    
-    model = lovr.graphics.newModel("bkd_main room_shell.glb")
-    torso = lovr.graphics.newModel("torso.glb")
-    helmet = lovr.graphics.newModel("helmet.glb")
-    lightsBlock = lovr.graphics.newShaderBlock('uniform', {
-        lightCount = 'int',
-        lightPositions = { 'vec4', 32 },
-        lightColors = { 'vec4', 32 },
-    }, { usage = 'stream'})
+    if not model then 
+        model = lovr.graphics.newModel("bkd_main room_shell.glb")
+        torso = lovr.graphics.newModel("torso.glb")
+        helmet = lovr.graphics.newModel("helmet.glb")
+        lightsBlock = lovr.graphics.newShaderBlock('uniform', {
+            lightCount = 'int',
+            lightPositions = { 'vec4', 32 },
+            lightColors = { 'vec4', 32 },
+        }, { usage = 'stream'})
+    end
     
     shader = require 'shader'
     shader:send('specularStrength', 0.5)
@@ -110,9 +111,14 @@ function all(k, t)
   return r
 end
 
-local time = 0
+if not time then 
+    paused = true
+    time = 0
+end
 function lovr.update(dt)
-    time = time + dt
+    if not paused then 
+        time = time + dt
+    end
     for i, light in ipairs(lights) do
         local t = time + ((math.pi*2)/#lights) * i
         light.pos = { math.sin(t)*2, 1.7 + math.sin(t * 0.3), math.cos(t) - 3 }
@@ -136,14 +142,33 @@ local function lookAt(eye, at, up)
 	)
 end
 
-function render()
+function render(makingCubemap)
+    if makingCubemap then 
+        lovr.graphics.setShader()
+    else
+        lovr.graphics.setShader(shader)
+    end
+    shader:send("reflectionStrength", makingCubemap and 0 or 1)
+    lovr.graphics.setBlendMode("alpha", "premultiplied")
     lovr.graphics.clear()
+    lovr.graphics.setColor(1, 1, 1, 0.1)
     lovr.graphics.setShader(shader)
     lovr.graphics.sphere(-1.2, 1.7, -3, 0.5, -time * 0.5, 0, 1, 0)
     -- lovr.graphics.sphere(0, 1.7, -3, 0.5)
     torso:draw(0, 1.2, -3, 3, time*0.5, 0, 1, 0)
-    helmet:draw(0, 2.6, -3, 0.2, time*0.5, 0, 1, 0)
-    lovr.graphics.box("fill", 1.2, 1.7, -3, 0.8, 0.5, 1, -time, 1, 1, 0)
+
+    lovr.graphics.box("fill", 1.1, 2.4, -3, 0.8, 0.5, 1, -time, 1, 1, 0)
+    
+    lovr.graphics.setColor(0, 1, 0, 0.5)
+    lovr.graphics.sphere(-0.9, math.sin(time*0.9) + 1.7, 5, 0.5, -time * 0.5, 0, 1, 0)
+    lovr.graphics.sphere(0, math.sin(time) + 1.7, 5.8, 0.5, -time * 0.5, 0, 1, 0)
+    lovr.graphics.sphere(0.9, math.sin(time*1.1) + 1.7, 5, 0.5, -time * 0.5, 0, 1, 0)
+    
+    if not makingCubemap then 
+        lovr.graphics.setColor(1, 1, 1, 1)
+        lovr.graphics.setShader(shader)
+        helmet:draw(0, 2.6, -3, 0.2, time*0.0, 0, 1, 0)
+    end
 
     for _, light in ipairs(lights) do
         lovr.graphics.setColor(table.unpack(light.color))
@@ -156,7 +181,7 @@ function lovr.draw()
     local view={lovr.graphics.getViewPose(1)}
 	local proj={lovr.graphics.getProjection(1)}
 	lovr.graphics.setProjection(1,mat4():perspective(0.1,1000,math.pi/2,1))
-	local center=vec3(0,1.7,0)
+	local center=vec3(0, 2.6, -3)
 	switcheroo()
 	for i,view in ipairs{
 		lookAt(center,center+vec3(1,0,0),vec3(0,-1,0)),
@@ -172,7 +197,7 @@ function lovr.draw()
 			local r,g,b,a=lovr.graphics.getBackgroundColor()
 			lovr.graphics.clear(r,g,b,a,1,0)
 			lovr.graphics.setViewPose(1,view,true)
-            render()
+            render(true)
 --    			draw_objects(cubemap.last_texture, true)
 		end)
 	end
@@ -191,5 +216,8 @@ function lovr.keypressed(key, scancode, repeated)
     if key == 'm' then 
         print("making")
         makeCube()
+    end
+    if key == 'p' then 
+        paused = not paused
     end
 end
