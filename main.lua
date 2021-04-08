@@ -3,6 +3,7 @@ package.path = 'lib/share/lua/' .. version .. '/?.lua;lib/share/lua/' .. version
 package.cpath = 'lib/lib/lua/' .. version .. '/?.so;' .. package.cpath
 local pp = require('pl.pretty').dump
 
+local lovr = lovr -- help the vscode lua plugin a bit
 vec3 = lovr.math.vec3
 newVec3 = lovr.math.newVec3
 newMat4 = lovr.math.newMat4
@@ -34,30 +35,6 @@ local function switcheroo()
 	cubemap.canvas = cubemap.canvases[cubemap.canvases.index]
 end
 
-function makeCube()
-    function make(rot, name)
-        canvas:renderTo(function()
-            lovr.graphics.push()
-            lovr.graphics.rotate(math.pi*0.5, rot:unpack())
-            lovr.graphics.translate(0, -1.7, 0)
-            render()
-            lovr.graphics.pop()
-        end)
-        -- local tex = canvas:getTexture()
-        local tex = canvas:newTextureData()
-        return tex
---        local blob = tex:encode()
-        --lovr.filesystem.write(name .. ".png", blob:getString())        
-    end
-
-    make(cube.left, vec3(0, -1, 0), "left")
-    make(cube.right, vec3(0, 1, 0), "right")
-    make(cube.top, vec3(-1, 0, 0), "top")
-    make(cube.bottom, vec3(1, 0, 0), "bottom")
-    make(cube.front, vec3(0, 0, 0), "front")
-    make(cube.back, vec3(0, 2, 0), "back")
-end
-
 function lovr.load()
     if not model then 
         model = lovr.graphics.newModel("bkd_main room_shell.glb")
@@ -69,15 +46,14 @@ function lovr.load()
             lightColors = { 'vec4', 32 },
         }, { usage = 'stream'})
     end
-    
-    shader = require 'shader'
+
+    require 'shader'
+    shader = Shader():generate()
     shader:send('specularStrength', 0.5)
     shader:send('metallic', 500.0)
     shader:send('viewPos', { 0.0, 0.0, 0.0} )
     shader:send('ambience', { 0.1, 0.1, 0.1, 1.0 })
     -- shader:send('ambience', { 1, 1, 1, 1.0 })
-    
-    shader:sendBlock('Lights', lightsBlock)
 
     depthShader = require 'fill_depth_shader'
 
@@ -187,7 +163,7 @@ renderer = Renderer()
 
 objects = {
     {
-        id = "sphere",
+        id = "sphere1",
         position = newVec3(-1.2, 1.7, -3),
         worldTransform = newMat4(),
         AABB = {
@@ -203,7 +179,7 @@ objects = {
         hasTransparency = true
     },
     {
-        id = "sphere",
+        id = "sphere2",
         position = newVec3(0, 1.7, -3),
         worldTransform = newMat4(),
         AABB = {
@@ -219,7 +195,7 @@ objects = {
         hasTransparency = true
     },
     {
-        id = "sphere",
+        id = "sphere3",
         position = newVec3(1.2, 1.7, -3),
         worldTransform = newMat4(),
         AABB = {
@@ -237,6 +213,22 @@ objects = {
 }
     
 function lovr.draw()
+    -- add lights to the object list if needed
+    if not objects.lights then
+        objects.lights = lights
+        for _, light in ipairs(lights) do
+            table.insert(objects, {
+                isLightsource = true,
+                position = newVec3(table.unpack(light.pos)),
+                draw = function (object)
+                    local x, y, z = object.position:unpack()
+                    lovr.graphics.setColor(table.unpack(object.light.color))
+                    lovr.graphics.sphere(x, y, z, 0.1)
+                end,
+
+            })
+        end
+    end
     renderer:render(objects, {drawAABB = true})
     
     lovr.graphics.sphere(0,0,0,0.2)

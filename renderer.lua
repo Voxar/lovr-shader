@@ -1,6 +1,12 @@
+--- Renderer
+-- Handles drawing of objects
+-- @classmod Renderer
+
+
 local class = require('pl.class')
 
 Renderer = class.Renderer()
+local lovr = lovr -- help vscode lua plugin a bit
 
 function Renderer:_init()
     --- Stores some information of objects
@@ -12,11 +18,15 @@ end
 -- @tparam table context Container for options needed between render passes. Leave nil to just draw all objects.
 -- object = {
 --  id = string
+--  type = string -- object (defualt), light, 
 --  worldTransform = mat4
 --  position = vec3
 --  AABB = {min = vec3, max = vec3, radius = float}
 --  draw = function(object, context)
---  
+--  material = {
+--      metalness = float,
+--      roughness = float,
+--  }
 -- }
 function Renderer:render(objects, context)
     context = context or {}
@@ -38,10 +48,14 @@ end
 
 function Renderer:drawBucket(bucket, context)
     local objects = bucket.objects
-    for _, object in ipairs(objects) do
-        context.currentObject = object
-        self:drawObject(object, context)
-    end        
+    if bucket.hasLightSources then
+        context.lightSources = bucket.objects
+    else
+        for _, object in ipairs(objects) do
+            context.currentObject = object
+            self:drawObject(object, context)
+        end
+    end
 end
 
 function Renderer:drawObject(object, context)
@@ -86,18 +100,24 @@ end
 
 --- Takes all objects and splits them into buckets for rendering
 function Renderer:sortObjectIntoBuckets(objects, context)
-    transparentObjects = {
+    local transparentObjects = {
         hasTransparency = true,
         backfaceCulling = true,
         depthBuffer = { read = true, write = false },
         objects = {},
     }
-    otherObjects = {
+    local otherObjects = {
         objects = {},
     }
-    
+    local lightsourceObjects = {
+        hasLightSources = true,
+        objects = {},
+    }
+
     for _, object in ipairs(objects) do
-        if object.hasTransparency and not context.skipTransparency then 
+        if object.type == 'light' then
+            table.insert(lightsourceObjects.objects, object)
+        elseif object.hasTransparency and not context.skipTransparency then 
             table.insert(transparentObjects.objects, object)
         else
             table.insert(otherObjects.objects, object)
@@ -105,6 +125,7 @@ function Renderer:sortObjectIntoBuckets(objects, context)
     end
     self:sortObjectsByAABBCenterToCameraPosition(transparentObjects.objects, context)
     return {
+        lightsourceObjects, -- these will not really be drawn at all
         otherObjects,
         transparentObjects, -- always draw transparent last
     }
@@ -136,25 +157,30 @@ end
 --- Generates a cube map from the point of object
 function Renderer:generateCubemap(object, cached, context)
     local cubemap = cached.reflectionMap
+    local cubemapSize = context.cubemapSize or 64
     if not cubemap then
         cubemap = {
-            texture = lovr.graphics.newTexture(cubemapSize,cubemapSize,{format="rg11b10f",stereo=false,type="cube"}),
+            texture = lovr.graphics.newTexture(cubemapSize, cubemapSize, { 
+                format = "rg11b10f",
+                stereo = false,
+                type = "cube"
+            }),
             canvas = lovr.graphics.newCanvas(cubemap.textures[1]),
         }
         cached.reflectionMap = cubemap
     end
     
-	local view={lovr.graphics.getViewPose(1)}
-	local proj={lovr.graphics.getProjection(1)}
-	lovr.graphics.setProjection(1,mat4():perspective(0.1,1000,math.pi/2,1))
+	local view = { lovr.graphics.getViewPose(1) }
+	local proj = { lovr.graphics.getProjection(1) }
+	lovr.graphics.setProjection(1, mat4():perspective(0.1, 1000, math.pi/2, 1))
 	local center = object.position
 	for i,pose in ipairs{
-		lookAt(center,center+vec3(1,0,0),vec3(0,-1,0)),
-		lookAt(center,center-vec3(1,0,0),vec3(0,-1,0)),
-		lookAt(center,center+vec3(0,1,0),vec3(0,0,1)),
-		lookAt(center,center-vec3(0,1,0),vec3(0,0,-1)),
-		lookAt(center,center+vec3(0,0,1),vec3(0,-1,0)),
-		lookAt(center,center-vec3(0,0,1),vec3(0,-1,0)),
+		lookAt(center, center + vec3(1,0,0), vec3(0,-1,0)),
+		lookAt(center, center - vec3(1,0,0), vec3(0,-1,0)),
+		lookAt(center, center + vec3(0,1,0), vec3(0,0,1)),
+		lookAt(center, center - vec3(0,1,0), vec3(0,0,-1)),
+		lookAt(center, center + vec3(0,0,1), vec3(0,-1,0)),
+		lookAt(center, center - vec3(0,0,1), vec3(0,-1,0)),
 	} do
 		local canvas = cubemap.canvas
 		canvas:setTexture(cubemap.texture, i)
