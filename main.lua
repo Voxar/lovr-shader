@@ -219,7 +219,7 @@ objects = {
     },
     helmet = {
         id = "helmet",
-        position = newVec3(1.2, 1.7, -3),
+        position = newVec3(0, 2.6, -3),
         worldTransform = newMat4(),
         AABB = {
             min = newVec3(-0.5, -0.5, -0.5), 
@@ -229,7 +229,7 @@ objects = {
         draw = function(object, context)
             lovr.graphics.setColor(1, 1, 1, 1)
             local x, y, z = object.position:unpack()
-            helmet:draw(0, 2.6, -3, 0.2, time*0.5, 0, 1, 0)
+            helmet:draw(x, y, z, 0.2, time*0.5, 0, 1, 0)
         end,
         hasTransparency = true,
         hasReflection = true,

@@ -66,11 +66,31 @@ function Renderer:render(objects, context)
     context.shader = self.shader
     lovr.graphics.setShader(context.shader)
 
-    -- 3. Draw objects in order
+
     context.buckets = {lights, other, transparent}
-    self:drawBucket(lights, context) -- debug draws
-    self:drawBucket(other, context) -- normal objects
-    self:drawBucket(transparent, context) -- transparent objects
+    
+    self:renderContext(context)
+
+    lovr.graphics.setShader()
+end
+
+function Renderer:renderContext(context)
+    -- get matrices
+    -- projection_matrix * Matrix4_Transpose(modelview_matrix)
+    local projectionMatrix = lovr.math.newMat4()
+    local viewMatrix = lovr.math.newMat4()
+    lovr.graphics.getProjection(1, projectionMatrix)
+    lovr.graphics.getViewPose(1, viewMatrix, false)
+    context.projectionMatrix = projectionMatrix
+    context.viewMatrix = viewMatrix
+
+    local frustumMatrix = lovr.math.newMat4(projectionMatrix * viewMatrix:invert())
+    context.frustum = self:getFrustum(frustumMatrix)
+
+
+    for _, bucket in ipairs(context.buckets) do
+        self:drawBucket(bucket, context)
+    end
 end
 
 function Renderer:drawBuckets(buckets, context)
@@ -105,6 +125,11 @@ function Renderer:drawObject(object, context)
     assert(object.position)
     assert(object.draw)
     -- assert(object.worldTransform)
+
+    if self:cullTest(object, context) then
+        print("skipping " .. object.id)
+        return
+    end
     
     if context.generatingReflectionMapForObject == object then 
         return
@@ -132,7 +157,6 @@ function Renderer:drawObject(object, context)
 
     self:prepareShaderForObject(object, context)
     
-    print("shader? " .. ((context.shader == self.shader) and "normal" or "oter"))
     object:draw(object, context)
     
     if context.drawAABB then 
@@ -278,5 +302,76 @@ function Renderer:prepareShaderForObject(object, context)
     else
         context.shader:send("reflectionStrength", 0)
     end
+end
 
+function Renderer:cullTest(object, context)
+    local frustum = context.frustum
+    for i = 1, 6 do
+        local p = frustum[i]
+        local e = object.position:dot(vec3(p.x, p.y, p.z)) + p.d + object.AABB.radius
+        if e < 0 then return true end -- if outside any plane
+    end
+    return false
+end
+
+-- @tparam mat mat4 projection_matrix * Matrix4_Transpose(modelview_matrix)
+-- @treturn {{x, y, z, d}} List of planes normal and distance
+function Renderer:getFrustum(mat)
+    local planes = {}
+    local p = {}
+    -- local m11, m12, m13, m14, m21, m22, m23, m24, m31, m32, m33, m34, m41, m42, m43, m44 = mat:unpack(true)
+    local m11, m21, m31, m41, m12, m22, m32, m42, m13, m23, m33, m43, m14, m24, m34, m44 = mat:unpack(true)
+    
+    local function norm(p)
+        local len = math.sqrt(p.x * p.x + p.y * p.y + p.z * p.z)
+        p.x = p.x / len
+        p.y = p.y / len
+        p.z = p.z / len
+        p.d = p.d / len
+        return p
+    end
+    -- Left clipping plane
+    planes[1] = norm{
+        x = m41 + m11;
+        y = m42 + m12;
+        z = m43 + m13;
+        d = m44 + m14;
+    }
+    -- Right clipping plane
+    planes[2] = norm{
+        x = m41 - m11;
+        y = m42 - m12;
+        z = m43 - m13;
+        d = m44 - m14;
+    }
+    -- Top clipping plane
+    planes[3] = norm{
+        x = m41 - m21,
+        y = m42 - m22,
+        z = m43 - m23,
+        d = m44 - m24,
+    }
+    -- Bottom clipping plane
+    planes[4] = norm{
+        x = m41 + m21,
+        y = m42 + m22,
+        z = m43 + m23,
+        d = m44 + m24,
+    }
+    -- Near clipping plane
+    planes[5] = norm{
+        x = m41 + m31,
+        y = m42 + m32,
+        z = m43 + m33,
+        d = m44 + m34,
+    }
+    -- Far clipping plane
+    planes[6] = norm{
+        x = m41 - m31,
+        y = m42 - m32,
+        z = m43 - m33,
+        d = m44 - m34,
+    }
+
+    return planes
 end
