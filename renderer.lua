@@ -4,6 +4,8 @@
 
 
 local class = require('pl.class')
+local pp = require('pl.pretty').dump
+require 'shader'
 
 Renderer = class.Renderer()
 local lovr = lovr -- help vscode lua plugin a bit
@@ -11,6 +13,17 @@ local lovr = lovr -- help vscode lua plugin a bit
 function Renderer:_init()
     --- Stores some information of objects
     self.cache = {}
+
+    self.shaderObj = Shader()
+    self.shader = self.shaderObj:generate()
+    self.cubemapShader = self.shaderObj:generate({stereo = false})
+    for _, shader in ipairs{self.shader, self.cubemapShader} do
+        shader:send('specularStrength', 0.5)
+        shader:send('metallic', 500.0)
+        shader:send('viewPos', { 0.0, 0.0, 0.0} )
+        shader:send('ambience', { 0.1, 0.1, 0.1, 1.0 })
+    end
+    self.lightsBlock = self.shaderObj.lightsBlock
 end
 
 --- Draws all objects in list `objects`
@@ -19,6 +32,10 @@ end
 -- object = {
 --  id = string
 --  type = string -- object (defualt), light, 
+--  light = {  -- when type == 'light'
+--      type = string -- 'point', 'spot', 'directional'
+--      direction = vec3 -- when type == 'spot' or 'directional'
+--  }
 --  worldTransform = mat4
 --  position = vec3
 --  AABB = {min = vec3, max = vec3, radius = float}
@@ -29,17 +46,35 @@ end
 --  }
 -- }
 function Renderer:render(objects, context)
-    context = context or {}
+    context = context or {
+        generatedCubeMapsCount = 0,
+        generatedCubeMapsMax = 2
+    }
     context.objects = context.objects or objects
     context.cache = context.cache or self.cache
     context.cameraPosition = context.cameraPosition or newVec3(lovr.headset.getPosition())
     
-    local buckets = self:sortObjectIntoBuckets(objects, context)
-    
-    self:drawBuckets(buckets, context)
+    -- 1. Sort objects into buckets
+    local lights, other, transparent = self:sortObjectIntoBuckets(objects, context)
+
+    -- 2. Go collect information needed to prepare the frame
+    context.lights = lights.objects
+
+    self:prepareShaderForFrame(self.shader, context)
+    self:prepareShaderForFrame(self.cubemapShader, context)
+
+    context.shader = self.shader
+    lovr.graphics.setShader(context.shader)
+
+    -- 3. Draw objects in order
+    context.buckets = {lights, other, transparent}
+    self:drawBucket(lights, context) -- debug draws
+    self:drawBucket(other, context) -- normal objects
+    self:drawBucket(transparent, context) -- transparent objects
 end
 
 function Renderer:drawBuckets(buckets, context)
+    lovr.graphics.flush()
     context.buckets = buckets
     for _, bucket in ipairs(buckets) do
         self:drawBucket(bucket, context)
@@ -48,14 +83,20 @@ end
 
 function Renderer:drawBucket(bucket, context)
     local objects = bucket.objects
+    assert(objects)
     if bucket.hasLightSources then
         context.lightSources = bucket.objects
+        for _, object in ipairs(objects) do
+            context.currentObject = object
+            self:drawObject(object, context)
+        end
     else
         for _, object in ipairs(objects) do
             context.currentObject = object
             self:drawObject(object, context)
         end
     end
+    lovr.math.drain()
 end
 
 function Renderer:drawObject(object, context)
@@ -63,7 +104,7 @@ function Renderer:drawObject(object, context)
     assert(object.AABB)
     assert(object.position)
     assert(object.draw)
-    assert(object.worldTransform)
+    -- assert(object.worldTransform)
     
     if context.generatingReflectionMapForObject == object then 
         return
@@ -78,16 +119,20 @@ function Renderer:drawObject(object, context)
     local useTransparency = object.hasTransparency and not context.skipTransparency
     local useRefraction = object.hasRefraction and not context.skipRefraction
     local useReflection = object.hasReflection and not context.skipReflection
-    local useReflectionMap = useReflection or useReflection
+    local useReflectionMap = useReflection or useRefraction
     
-    if useReflectionMap and not cached.reflectionMap then 
-        self:generateCubemap(object, cached, context)
+    -- if useReflectionMap and not cached.reflectionMap then 
+    if useReflectionMap and not context.generatingReflectionMapForObject and not cached.reflectionMap then
+        if (context.generatedCubeMapsCount or 0) < (context.generatedCubeMapsMax or 1) then
+            context.generatedCubeMapsCount = (context.generatedCubeMapsCount or 0) + 1
+            self:generateCubemap(object, cached, context)
+        end
     end
     
-    if not cached.shader then 
 
-    end
+    self:prepareShaderForObject(object, context)
     
+    print("shader? " .. ((context.shader == self.shader) and "normal" or "oter"))
     object:draw(object, context)
     
     if context.drawAABB then 
@@ -100,43 +145,47 @@ end
 
 --- Takes all objects and splits them into buckets for rendering
 function Renderer:sortObjectIntoBuckets(objects, context)
-    local transparentObjects = {
+    local transparent = {
         hasTransparency = true,
         backfaceCulling = true,
         depthBuffer = { read = true, write = false },
         objects = {},
     }
-    local otherObjects = {
+    local other = {
         objects = {},
     }
-    local lightsourceObjects = {
+    local lightsource = {
         hasLightSources = true,
         objects = {},
     }
 
     for _, object in ipairs(objects) do
         if object.type == 'light' then
-            table.insert(lightsourceObjects.objects, object)
+            table.insert(lightsource.objects, object)
         elseif object.hasTransparency and not context.skipTransparency then 
-            table.insert(transparentObjects.objects, object)
+            table.insert(transparent.objects, object)
         else
-            table.insert(otherObjects.objects, object)
+            table.insert(other.objects, object)
         end
     end
-    self:sortObjectsByAABBCenterToCameraPosition(transparentObjects.objects, context)
-    return {
-        lightsourceObjects, -- these will not really be drawn at all
-        otherObjects,
-        transparentObjects, -- always draw transparent last
-    }
+    self:sortObjectsFurthestToNearest(transparent.objects, context.cameraPosition)
+    self:sortObjectsNearestToFurthest(other.objects, context.cameraPosition)
+    return lightsource, other, transparent
 end
 
 
-function Renderer:sortObjectsByAABBCenterToCameraPosition(objects, context)
-    local cameraPosition = context.cameraPosition
+function Renderer:sortObjectsNearestToFurthest(objects, position)
     table.sort(objects, function(a, b)
-        local aScore = a.position:distance(cameraPosition)
-        local bScore = b.position:distance(cameraPosition)
+        local aScore = a.position:distance(position)
+        local bScore = b.position:distance(position)
+        return aScore < bScore
+    end)
+end
+
+function Renderer:sortObjectsFurthestToNearest(objects, position)
+    table.sort(objects, function(a, b)
+        local aScore = a.position:distance(position)
+        local bScore = b.position:distance(position)
         return aScore > bScore
     end)
 end
@@ -156,17 +205,18 @@ end
 
 --- Generates a cube map from the point of object
 function Renderer:generateCubemap(object, cached, context)
+
     local cubemap = cached.reflectionMap
     local cubemapSize = context.cubemapSize or 64
+
     if not cubemap then
-        cubemap = {
-            texture = lovr.graphics.newTexture(cubemapSize, cubemapSize, { 
-                format = "rg11b10f",
-                stereo = false,
-                type = "cube"
-            }),
-            canvas = lovr.graphics.newCanvas(cubemap.textures[1]),
-        }
+        local texture = lovr.graphics.newTexture(cubemapSize, cubemapSize, { 
+            format = "rg11b10f",
+            stereo = false,
+            type = "cube"
+        })
+        local canvas = lovr.graphics.newCanvas(texture, { stereo = false })
+        cubemap = { texture = texture, canvas = canvas }
         cached.reflectionMap = cubemap
     end
     
@@ -183,14 +233,50 @@ function Renderer:generateCubemap(object, cached, context)
 		lookAt(center, center - vec3(0,0,1), vec3(0,-1,0)),
 	} do
 		local canvas = cubemap.canvas
-		canvas:setTexture(cubemap.texture, i)
         context.generatingReflectionMapForObject = object
+        context.shader = self.cubemapShader
+            lovr.graphics.setShader(context.shader)
+		canvas:setTexture(cubemap.texture, i)
+        
 		canvas:renderTo(function ()
-			local r,g,b,a = lovr.graphics.getBackgroundColor()
+            
+
+            local r,g,b,a = lovr.graphics.getBackgroundColor()
 			lovr.graphics.clear(r, g, b, a, 1, 0)
 			lovr.graphics.setViewPose(1, pose, true)
-			self:drawBuckets(context.objects, context)
+			self:drawBuckets(context.buckets, context)
+
 		end)
+        context.shader = self.shader
+            lovr.graphics.setShader(context.shader)
+            lovr.graphics.flush()
         context.generatingReflectionMapForObject = nil
 	end
+    lovr.graphics.setProjection(1,unpack(proj))
+	lovr.graphics.setViewPose(1,unpack(view))
+end
+
+function Renderer:prepareShaderForFrame(shader, context)
+    local positions = {}
+    local colors = {}
+    local lights = context.lights or {}
+    for _, light in ipairs(lights) do
+        local x, y, z = light.position:unpack()
+        table.insert(positions, {x, y, z})
+        table.insert(colors, light.light.color)
+    end
+    self.lightsBlock:send('lightCount', #lights)
+    self.lightsBlock:send('lightColors', colors)
+    self.lightsBlock:send('lightPositions', positions)
+end
+
+function Renderer:prepareShaderForObject(object, context)
+    local cached = context.cache[object.id]
+    if cached.reflectionMap then
+        context.shader:send("reflectionStrength", 1)
+        context.shader:send("cubemap", cached.reflectionMap.texture)
+    else
+        context.shader:send("reflectionStrength", 0)
+    end
+
 end

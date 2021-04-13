@@ -36,6 +36,7 @@
             for(int i_light = 0; i_light < lightCount; i_light++) {
                 vec3 lightPos = lightPositions[i_light].xyz;
                 vec3 lightColor = lightColors[i_light].rgb;
+                lightColor = vec3(1.);
                 
                 //diffuse
                 vec3 norm = normalize(N);
@@ -45,7 +46,7 @@
                 
                 // specular
                 vec3 reflectDir = reflect(-lightDir, norm);
-                float spec = pow(max(dot(viewDir, reflectDir), 0.0), metallic) * metalness;
+                float spec = pow(float(max(dot(viewDir, reflectDir), 0.0)), float(metallic)) * metalness;
                 vec3 specular = specularStrength * spec * lightColor;
                 
                 lighting += diffuse + specular;
@@ -65,7 +66,7 @@
     		vec3 refl=texture(cubemap, ref, -0.5).rgb * ndi * metalness * graphicsColor.rgb;
             vec3 r = refract(-i_vs, n_vs, 0.66);
     		vec3 refr=texture(cubemap, vLovrViewTransposed * r).rgb * (1. - baseColor.a);
-            vec4 reflections = vec4(refl + refr, 1.) * reflectionStrength * metalness;
+            vec4 reflections = vec4(refl + refr, 1.) * reflectionStrength;
             
             //float fresnel = clamp(0., 1., 1 - dot(N, viewDir));
 //            return texture(lovrRoughnessTexture, uv).rrra;
@@ -75,9 +76,10 @@
 //            return texture(lovrOcclusionTexture, uv);
 //            return texture(lovrEmissiveTexture, uv);
          
-                if (lovrViewID == 1)             
-                    //return vec4(vec3(roughness), 1.0);
-                    return vec4(refl, 1.);
+                // if (lovrViewID == 1)             
+                //     // return vec4(vec3(reflectionStrength), 1.0);
+                //     // return reflections;
+                //     return vec4(N, 1.);
                 //else return vec4(N, 1);
             return (baseColor + emissive + reflections) * vec4(lighting, 1.);
         }

@@ -36,9 +36,15 @@ function Shader:get(options)
     options.debugMode = options.debugMode or nil -- transparency, normalmap, metalnessmap, roughnessmap, specularmap, reflections, refractions, lights
 end
 
-function Shader:generate(options)
-    if self.shader then return self.shader end
+local function read(file)
+    if lovr then 
+        return lovr.filesystem.read(file)
+    else
+        return io.open(file):read("*a")
+    end
+end
 
+function Shader:generate(options)
     options = options or {}
     local debug = options.debugMode
     local returnvalue = 'result'
@@ -53,16 +59,20 @@ function Shader:generate(options)
         frag = frag .. self.lightsBlock:getShaderCode('Lights')
     end
 
-    if true or options.useGeneratedNormals then 
-        frag = frag .. io.open("shader/normals.glsl"):read('*a')
+    if true or options.useGeneratedNormals then
+        frag = frag .. read("shader/normals.glsl")
+
     end
 
-    vert = vert .. io.open("shader/vert.glsl"):read("*a")
-    frag = frag .. io.open("shader/frag.glsl"):read("*a")
+    vert = vert .. read("shader/vert.glsl")
+    frag = frag .. read("shader/frag.glsl")
 
-    local shader = lovr.graphics.newShader(vert, frag, {})
-
-    shader:sendBlock('Lights', lightsBlock)
-    self.shader = shader
+    local shader = lovr.graphics.newShader(vert, frag, {
+        stereo = options.stereo,
+        flags = {
+            highp = true
+        }
+    })
+    shader:sendBlock('Lights', self.lightsBlock)
     return shader
 end

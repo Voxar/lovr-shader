@@ -1,7 +1,9 @@
 local version = _VERSION:match("%d+%.%d+")
 package.path = 'lib/share/lua/' .. version .. '/?.lua;lib/share/lua/' .. version .. '/?/init.lua;' .. package.path
+package.path = '/sdcard/Android/data/org.lovr.app/files/lib/share/lua/' .. version .. '/?.lua;lib/share/lua/' .. version .. '/?/init.lua;' .. package.path
 package.cpath = 'lib/lib/lua/' .. version .. '/?.so;' .. package.cpath
 local pp = require('pl.pretty').dump
+local tablex = require('pl.tablex')
 
 local lovr = lovr -- help the vscode lua plugin a bit
 vec3 = lovr.math.vec3
@@ -35,7 +37,10 @@ local function switcheroo()
 	cubemap.canvas = cubemap.canvases[cubemap.canvases.index]
 end
 
+renderer = nil
+
 function lovr.load()
+    renderer = Renderer()
     if not model then 
         model = lovr.graphics.newModel("bkd_main room_shell.glb")
         torso = lovr.graphics.newModel("torso.glb")
@@ -158,11 +163,10 @@ function render(makingCubemap)
     end
     model:draw()
 end
-    
-renderer = Renderer()
+
 
 objects = {
-    {
+    sphere1 = {
         id = "sphere1",
         position = newVec3(-1.2, 1.7, -3),
         worldTransform = newMat4(),
@@ -172,13 +176,14 @@ objects = {
             radius = 0.5
         },
         draw = function(object, context)
-            lovr.graphics.setColor(1, 0.5, 0.5, 0.5)
+            lovr.graphics.setColor(1, 0.5, 0.5, 1)
             local x, y, z = object.position:unpack()
             lovr.graphics.sphere(x, y, z, object.AABB.radius)
         end,
-        hasTransparency = true
+        hasTransparency = true,
+        hasReflection = true,
     },
-    {
+    sphere2 = {
         id = "sphere2",
         position = newVec3(0, 1.7, -3),
         worldTransform = newMat4(),
@@ -188,13 +193,14 @@ objects = {
             radius = 0.5
         },
         draw = function(object, context)
-            lovr.graphics.setColor(0.5, 1, 0.5, 0.5)
+            lovr.graphics.setColor(1, 1, 1, 0)
             local x, y, z = object.position:unpack()
             lovr.graphics.sphere(x, y, z, object.AABB.radius)
         end,
-        hasTransparency = true
+        hasTransparency = true,
+        hasReflection = true,
     },
-    {
+    sphere3 = {
         id = "sphere3",
         position = newVec3(1.2, 1.7, -3),
         worldTransform = newMat4(),
@@ -204,32 +210,83 @@ objects = {
             radius = 0.5
         },
         draw = function(object, context)
-            lovr.graphics.setColor(0.5, 0.5, 1, 0.5)
+            lovr.graphics.setColor(0.5, 0.5, 1, 1)
             local x, y, z = object.position:unpack()
             lovr.graphics.sphere(x, y, z, object.AABB.radius)
         end,
         hasTransparency = true,
+        hasReflection = true,
     },
+    helmet = {
+        id = "helmet",
+        position = newVec3(1.2, 1.7, -3),
+        worldTransform = newMat4(),
+        AABB = {
+            min = newVec3(-0.5, -0.5, -0.5), 
+            max = newVec3(0.5, 0.5, 0.5), 
+            radius = 0.5
+        },
+        draw = function(object, context)
+            lovr.graphics.setColor(1, 1, 1, 1)
+            local x, y, z = object.position:unpack()
+            helmet:draw(0, 2.6, -3, 0.2, time*0.5, 0, 1, 0)
+        end,
+        hasTransparency = true,
+        hasReflection = true,
+    }
 }
     
+
+objects = {}
+for metalness = 0, 10 do
+    for roughness = 0, 10 do
+        objects["ball " .. metalness .. roughness] = {
+            id = "ball " .. metalness .. roughness,
+            position = newVec3(metalness - 5, roughness - 5, -3),
+            worldTransform = newMat4(),
+            AABB = {
+                min = newVec3(-0.4, -0.4, -0.4), 
+                max = newVec3(0.4, 0.4, 0.4), 
+                radius = 0.4
+            },
+            draw = function(object, context)
+                lovr.graphics.setColor(1.0, 0.8, 0.8, 0.8)
+                local x, y, z = object.position:unpack()
+                lovr.graphics.sphere(x, y, z, object.AABB.radius)
+            end,
+            hasTransparency = true,
+            hasReflection = true,
+        }
+    end
+end
 function lovr.draw()
     -- add lights to the object list if needed
-    if not objects.lights then
-        objects.lights = lights
-        for _, light in ipairs(lights) do
-            table.insert(objects, {
-                isLightsource = true,
+    
+    for i, light in ipairs(lights) do
+        local id = 'light ' .. i
+        local object = objects[id]
+        if object then
+            object.position:set(table.unpack(light.pos))            
+        else
+            objects[id] = {
+                id = 'light ' .. i,
+                type = 'light',
                 position = newVec3(table.unpack(light.pos)),
-                draw = function (object)
+                AABB = {
+                    min = newVec3(-0.1, -0.1, -0.1), 
+                    max = newVec3(0.1, 0.1, 0.1), 
+                    radius = 0.1
+                },
+                draw = function (object, context)
                     local x, y, z = object.position:unpack()
                     lovr.graphics.setColor(table.unpack(object.light.color))
                     lovr.graphics.sphere(x, y, z, 0.1)
                 end,
-
-            })
+                light = light,
+            }
         end
     end
-    renderer:render(objects, {drawAABB = true})
+    renderer:render(tablex.values(objects), {drawAABB = true})
     
     lovr.graphics.sphere(0,0,0,0.2)
 end
