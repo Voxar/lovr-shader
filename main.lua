@@ -81,6 +81,8 @@ function lovr.load()
     --     back   = lovr.graphics.newTexture(size, size, 1, {}),
     -- }
     -- cube.map = lovr.graphics.newTexture(cube)
+
+
 end
 
 local lights = {
@@ -116,6 +118,10 @@ function lovr.update(dt)
     -- lightsBlock:send('lightCount', 0)
     shader:send('time', time)
     -- makeCube()
+
+    if lovr.headset.wasPressed("right", "a") then 
+        paused = not paused
+    end
 end
 saved = false
 
@@ -169,11 +175,9 @@ objects = {
     sphere1 = {
         id = "sphere1",
         position = newVec3(-1.2, 1.7, -3),
-        worldTransform = newMat4(),
         AABB = {
             min = newVec3(-0.5, -0.5, -0.5), 
             max = newVec3(0.5, 0.5, 0.5), 
-            radius = 0.5
         },
         draw = function(object, context)
             lovr.graphics.setColor(1, 0.5, 0.5, 1)
@@ -186,11 +190,9 @@ objects = {
     sphere2 = {
         id = "sphere2",
         position = newVec3(0, 1.7, -3),
-        worldTransform = newMat4(),
         AABB = {
             min = newVec3(-0.5, -0.5, -0.5), 
             max = newVec3(0.5, 0.5, 0.5), 
-            radius = 0.5
         },
         draw = function(object, context)
             lovr.graphics.setColor(1, 1, 1, 0)
@@ -203,11 +205,9 @@ objects = {
     sphere3 = {
         id = "sphere3",
         position = newVec3(1.2, 1.7, -3),
-        worldTransform = newMat4(),
         AABB = {
             min = newVec3(-0.5, -0.5, -0.5), 
             max = newVec3(0.5, 0.5, 0.5), 
-            radius = 0.5
         },
         draw = function(object, context)
             lovr.graphics.setColor(0.5, 0.5, 1, 1)
@@ -220,11 +220,9 @@ objects = {
     helmet = {
         id = "helmet",
         position = newVec3(0, 2.6, -3),
-        worldTransform = newMat4(),
         AABB = {
             min = newVec3(-0.5, -0.5, -0.5), 
             max = newVec3(0.5, 0.5, 0.5), 
-            radius = 0.5
         },
         draw = function(object, context)
             lovr.graphics.setColor(1, 1, 1, 1)
@@ -240,33 +238,37 @@ objects = {
 objects = {}
 for metalness = 0, 10 do
     for roughness = 0, 10 do
+        local special = metalness == 5 and roughness == 5
         objects["ball " .. metalness .. roughness] = {
             id = "ball " .. metalness .. roughness,
             position = newVec3(metalness - 5, roughness - 5, -3),
-            worldTransform = newMat4(),
             AABB = {
                 min = newVec3(-0.4, -0.4, -0.4), 
                 max = newVec3(0.4, 0.4, 0.4), 
-                radius = 0.4
             },
             draw = function(object, context)
-                lovr.graphics.setColor(1.0, 0.8, 0.8, 0.8)
+                lovr.graphics.setColor(special and 0.3 or 1.0, 0.8, 0.8, 0.8)
                 local x, y, z = object.position:unpack()
-                lovr.graphics.sphere(x, y, z, object.AABB.radius)
+                lovr.graphics.sphere(x, y, z, 0.4)
             end,
-            hasTransparency = true,
-            hasReflection = true,
+            hasTransparency = special,
+            hasReflection = special,
         }
     end
 end
+
 function lovr.draw()
     -- add lights to the object list if needed
+
+    local proj = lovr.math.mat4():perspective(0.1, 10, 60 * math.pi/180, 1)
+    -- lovr.graphics.setProjection(1, proj)
+    -- lovr.graphics.setProjection(2, proj)
     
     for i, light in ipairs(lights) do
         local id = 'light ' .. i
         local object = objects[id]
         if object then
-            object.position:set(table.unpack(light.pos))            
+            object.position:set(table.unpack(light.pos))
         else
             objects[id] = {
                 id = 'light ' .. i,
@@ -275,7 +277,6 @@ function lovr.draw()
                 AABB = {
                     min = newVec3(-0.1, -0.1, -0.1), 
                     max = newVec3(0.1, 0.1, 0.1), 
-                    radius = 0.1
                 },
                 draw = function (object, context)
                     local x, y, z = object.position:unpack()

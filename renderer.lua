@@ -5,6 +5,9 @@
 
 local class = require('pl.class')
 local pp = require('pl.pretty').dump
+local tablex = require('pl.tablex')
+local OrderedMap = require('pl.OrderedMap')
+
 require 'shader'
 
 Renderer = class.Renderer()
@@ -17,13 +20,20 @@ function Renderer:_init()
     self.shaderObj = Shader()
     self.shader = self.shaderObj:generate()
     self.cubemapShader = self.shaderObj:generate({stereo = false})
-    for _, shader in ipairs{self.shader, self.cubemapShader} do
+
+    self.standardShaders = {
+        self.shader, 
+        self.cubemapShader
+    }
+    
+    self.lightsBlock = self.shaderObj.lightsBlock
+    for _, shader in ipairs(self.standardShaders) do
         shader:send('specularStrength', 0.5)
         shader:send('metallic', 500.0)
         shader:send('viewPos', { 0.0, 0.0, 0.0} )
         shader:send('ambience', { 0.1, 0.1, 0.1, 1.0 })
     end
-    self.lightsBlock = self.shaderObj.lightsBlock
+
 end
 
 --- Draws all objects in list `objects`
@@ -36,182 +46,259 @@ end
 --      type = string -- 'point', 'spot', 'directional'
 --      direction = vec3 -- when type == 'spot' or 'directional'
 --  }
---  worldTransform = mat4
 --  position = vec3
---  AABB = {min = vec3, max = vec3, radius = float}
+--  rotation = quat
+--  scale = vec3
+--  AABB = {min = vec3, max = vec3} -- local to object position
 --  draw = function(object, context)
 --  material = {
 --      metalness = float,
 --      roughness = float,
 --  }
 -- }
-function Renderer:render(objects, context)
-    context = context or {
-        generatedCubeMapsCount = 0,
-        generatedCubeMapsMax = 2
+function Renderer:render(objects)
+    local context = {}
+    context.objects = objects
+    context.stats = {
+        views = 0,
+        drawnObjects = 0,
+        culledObjects = 0,
     }
-    context.objects = context.objects or objects
-    context.cache = context.cache or self.cache
-    context.cameraPosition = context.cameraPosition or newVec3(lovr.headset.getPosition())
-    
-    -- 1. Sort objects into buckets
-    local lights, other, transparent = self:sortObjectIntoBuckets(objects, context)
 
-    -- 2. Go collect information needed to prepare the frame
-    context.lights = lights.objects
-
-    self:prepareShaderForFrame(self.shader, context)
-    self:prepareShaderForFrame(self.cubemapShader, context)
-
-    context.shader = self.shader
-    lovr.graphics.setShader(context.shader)
-
-
-    context.buckets = {lights, other, transparent}
-    
     self:renderContext(context)
 
-    lovr.graphics.setShader()
+    local stats = context.stats
+    print("Views: " .. stats.views .. ", Objects: " .. stats.drawnObjects .. ", Culled: " .. stats.culledObjects .. ", lights: " .. stats.lights)
 end
 
+--- Prepares and draws a context
+-- Context may already be partially prepared so parts can be reused
 function Renderer:renderContext(context)
-    -- get matrices
-    -- projection_matrix * Matrix4_Transpose(modelview_matrix)
-    local projectionMatrix = lovr.math.newMat4()
-    local viewMatrix = lovr.math.newMat4()
-    lovr.graphics.getProjection(1, projectionMatrix)
-    lovr.graphics.getViewPose(1, viewMatrix, false)
-    context.projectionMatrix = projectionMatrix
-    context.viewMatrix = viewMatrix
+    local prepareFrame = (context.frame == nil) or not context.frame.prepared
+    local prepareView = (context.view == nil) or not context.view.prepared
 
-    local frustumMatrix = lovr.math.newMat4(projectionMatrix * viewMatrix:invert())
-    context.frustum = self:getFrustum(frustumMatrix)
-
-
-    for _, bucket in ipairs(context.buckets) do
-        self:drawBucket(bucket, context)
+    if prepareFrame then
+        self:prepareFrame(context)
     end
-end
 
-function Renderer:drawBuckets(buckets, context)
-    lovr.graphics.flush()
-    context.buckets = buckets
-    for _, bucket in ipairs(buckets) do
-        self:drawBucket(bucket, context)
+    if prepareView then
+        self:prepareView(context)
     end
-end
 
-function Renderer:drawBucket(bucket, context)
-    local objects = bucket.objects
-    assert(objects)
-    if bucket.hasLightSources then
-        context.lightSources = bucket.objects
-        for _, object in ipairs(objects) do
-            context.currentObject = object
-            self:drawObject(object, context)
+    -- Sorts objects into lists for frame and view
+    self:prepareObjects(context)
+
+    for i, shader in ipairs(self.standardShaders) do
+        if prepareFrame then
+            self:prepareShaderForFrame(shader, context)
         end
+        if prepareView then
+            self:prepareShaderForView(shader, context)
+        end
+    end
+
+    self:drawContext(context)
+end
+
+function Renderer:prepareFrame(context)
+    -- Setup for this frame. Split objects for exampel?
+    local frame = context.frame or {}
+
+    frame.prepared = true
+    context.frame = frame
+end
+
+function Renderer:prepareView(context)
+    -- Setup for a render pass from a specific view
+    -- distance to view etc. 
+    -- Needed once for player, once for the 6 cubemap sides
+    -- make distance lists
+    
+    local view = context.view or {}
+
+    -- Determine the modelView and projection matrices
+    if not view.modelView then
+        local modelView = lovr.math.newMat4()
+        lovr.graphics.getViewPose(1, modelView, true)
+        view.modelView = modelView
     else
-        for _, object in ipairs(objects) do
-            context.currentObject = object
-            self:drawObject(object, context)
+        lovr.graphics.setViewPose(1, view.modelView, true)
+        lovr.graphics.setViewPose(2, view.modelView, true)
+    end
+
+    if not view.projection then
+        local projection = lovr.math.newMat4()
+        lovr.graphics.getProjection(1, projection)
+        view.projection = projection
+    else
+        lovr.graphics.setProjection(1, view.projection)
+        lovr.graphics.setProjection(2, view.projection)
+    end
+
+
+    local x, y, z = view.modelView:unpack()
+    view.cameraPosition = vec3(x, y, z)
+    view.modelViewProjection = view.projection * view.modelView
+    view.frustum = self:getFrustum(view.modelViewProjection)
+
+    view.prepared = true
+    context.view = view
+    context.stats.views = context.stats.views + 1
+end
+
+
+function Renderer:prepareObjects(context)
+    local frame = context.frame
+    local view = context.view
+
+    local prepareFrameObjects = frame.objects == nil
+    local prepareViewObjects = view.objects == nil
+
+    if prepareFrameObjects then
+        frame.objects = {
+            lights = OrderedMap(),
+            needsCubemap = OrderedMap(),
+        }
+    end
+
+    if prepareViewObjects then
+        view.objects = {
+            opaque = OrderedMap(),
+            transparent = OrderedMap(),-- ordered furthest to nearest from camera
+        }
+    end
+
+    for i, object in ipairs(context.objects) do
+        local renderObject = self.cache[object.id]
+        if not renderObject then 
+            renderObject = { id = object.id }
+            self.cache[object.id] = renderObject
+        end
+        renderObject.source = object
+
+        -- AABB derivates
+        local AABB = object.AABB
+        local minmaxdiv2 = (AABB.max - AABB.min) / 2
+        renderObject.AABB = {
+            min = AABB.min,
+            max = AABB.max,
+            center = object.position + AABB.min + minmaxdiv2,
+            radius = minmaxdiv2:length(),
+        }
+
+        -- Precalculate object vector and distance to camera
+        renderObject.vectorToCamera = view.cameraPosition - renderObject.AABB.center
+        renderObject.distanceToCamera = renderObject.vectorToCamera:length()
+
+        if self:cullTest(renderObject, context) then
+            -- object skipped for this pass
+            context.stats.culledObjects = context.stats.culledObjects + 1
+        else
+            renderObject.culledLastFrame = false
+            self:prepareObject(renderObject, context, prepareFrameObjects, prepareViewObjects)
         end
     end
-    lovr.math.drain()
+
+    
+    if prepareFrameObjects then
+        
+    end
+
+    if prepareViewObjects then
+        view.objects.transparent:sort(function(a, b)
+            return a.distanceToCamera < b.distanceToCamera
+        end)
+
+        -- Get a sorted list of need cubemaps
+        view.objects.needsCubemap = OrderedMap(frame.objects.needsCubemap)
+        view.objects.needsCubemap:sort(function(a, b)
+            return a.distanceToCamera > b.distanceToCamera
+        end)
+    end
+end
+
+
+function Renderer:prepareObject(renderObject, context, prepareFrameObjects, prepareViewObjects)
+    local object = renderObject.source
+
+    local view = context.view
+    local frame = context.frame
+
+    local function insert(list, object)
+        list[object.id] = object
+    end
+
+    if prepareFrameObjects then
+        if object.type == 'light' then
+            insert(frame.objects.lights, renderObject)
+        end
+
+        if object.hasReflection or object.hasRefraction then 
+            insert(frame.objects.needsCubemap, renderObject)
+        end
+    end
+    
+    if prepareViewObjects then
+        if object.hasTransparency then
+            -- print("Adding to transp " .. object.id)
+            insert(view.objects.transparent, renderObject)
+        else
+            insert(view.objects.opaque, renderObject)
+        end
+    end
+end
+
+function Renderer:drawContext(context)
+    local frame = context.frame
+    local view = context.view
+
+    lovr.graphics.setShader(self.shader)
+
+    -- Generate cubemaps where needed
+    for id, object in view.objects.needsCubemap:iter() do
+        if object.reflectionMap then 
+        else
+        print("cube for " .. object.id)
+        self:generateCubemap(object, context)
+        end
+    end
+
+    -- Draw normal objects
+    for id, object in context.view.objects.opaque:iter() do
+        self:drawObject(object, context)
+    end
+
+    -- Draw transparent objects
+    for id, object in context.view.objects.transparent:iter() do
+        self:drawObject(object, context)
+    end
 end
 
 function Renderer:drawObject(object, context)
-    assert(object.id)
-    assert(object.AABB)
-    assert(object.position)
-    assert(object.draw)
-    -- assert(object.worldTransform)
-
-    if self:cullTest(object, context) then
-        print("skipping " .. object.id)
-        return
-    end
+    -- local useTransparency = object.hasTransparency and not context.skipTransparency
+    -- local useRefraction = object.hasRefraction and not context.skipRefraction
+    -- local useReflection = object.hasReflection and not context.skipReflection
+    -- local useReflectionMap = useReflection or useRefraction
     
-    if context.generatingReflectionMapForObject == object then 
-        return
-    end
+    -- -- if useReflectionMap and not cached.reflectionMap then 
+    -- if useReflectionMap and not context.generatingReflectionMapForObject and not cached.reflectionMap then
+    --     if (context.generatedCubeMapsCount or 0) < (context.generatedCubeMapsMax or 1) then
+    --         context.generatedCubeMapsCount = (context.generatedCubeMapsCount or 0) + 1
+    --         self:generateCubemap(object, cached, context)
+    --     end
+    -- end
     
-    local cached = context.cache[object.id]
-    if not cached then 
-        cached = { id = object.id }
-        context.cache[object.id] = cached
-    end
-    
-    local useTransparency = object.hasTransparency and not context.skipTransparency
-    local useRefraction = object.hasRefraction and not context.skipRefraction
-    local useReflection = object.hasReflection and not context.skipReflection
-    local useReflectionMap = useReflection or useRefraction
-    
-    -- if useReflectionMap and not cached.reflectionMap then 
-    if useReflectionMap and not context.generatingReflectionMapForObject and not cached.reflectionMap then
-        if (context.generatedCubeMapsCount or 0) < (context.generatedCubeMapsMax or 1) then
-            context.generatedCubeMapsCount = (context.generatedCubeMapsCount or 0) + 1
-            self:generateCubemap(object, cached, context)
-        end
-    end
-    
-
     self:prepareShaderForObject(object, context)
     
-    object:draw(object, context)
+    context.stats.drawnObjects = context.stats.drawnObjects + 1
+    object.source:draw(object, context)
     
-    if context.drawAABB then 
+    if true or context.drawAABB then
         local bb = object.AABB
-        local size = bb.max - bb.min
-        local x, y, z = object.position:unpack()
-        lovr.graphics.box("line", x, y, z, math.abs(size.x), math.abs(size.y), math.abs(size.z))
+        local w, h, d = (bb.max - bb.min):unpack()
+        local x, y, z = bb.center:unpack()
+        lovr.graphics.box("line", x, y, z, math.abs(w), math.abs(h), math.abs(d))
     end
-end
-
---- Takes all objects and splits them into buckets for rendering
-function Renderer:sortObjectIntoBuckets(objects, context)
-    local transparent = {
-        hasTransparency = true,
-        backfaceCulling = true,
-        depthBuffer = { read = true, write = false },
-        objects = {},
-    }
-    local other = {
-        objects = {},
-    }
-    local lightsource = {
-        hasLightSources = true,
-        objects = {},
-    }
-
-    for _, object in ipairs(objects) do
-        if object.type == 'light' then
-            table.insert(lightsource.objects, object)
-        elseif object.hasTransparency and not context.skipTransparency then 
-            table.insert(transparent.objects, object)
-        else
-            table.insert(other.objects, object)
-        end
-    end
-    self:sortObjectsFurthestToNearest(transparent.objects, context.cameraPosition)
-    self:sortObjectsNearestToFurthest(other.objects, context.cameraPosition)
-    return lightsource, other, transparent
-end
-
-
-function Renderer:sortObjectsNearestToFurthest(objects, position)
-    table.sort(objects, function(a, b)
-        local aScore = a.position:distance(position)
-        local bScore = b.position:distance(position)
-        return aScore < bScore
-    end)
-end
-
-function Renderer:sortObjectsFurthestToNearest(objects, position)
-    table.sort(objects, function(a, b)
-        local aScore = a.position:distance(position)
-        local bScore = b.position:distance(position)
-        return aScore > bScore
-    end)
 end
 
 -- this function is broken in lovr 0.14.0
@@ -228,9 +315,13 @@ local function lookAt(eye, at, up)
 end
 
 --- Generates a cube map from the point of object
-function Renderer:generateCubemap(object, cached, context)
+function Renderer:generateCubemap(renderObject, context)
 
-    local cubemap = cached.reflectionMap
+    if context.generatingReflectionMapForObject == renderObject then
+        assert(false)
+    end
+
+    local cubemap = renderObject.reflectionMap
     local cubemapSize = context.cubemapSize or 64
 
     if not cubemap then
@@ -241,13 +332,17 @@ function Renderer:generateCubemap(object, cached, context)
         })
         local canvas = lovr.graphics.newCanvas(texture, { stereo = false })
         cubemap = { texture = texture, canvas = canvas }
-        cached.reflectionMap = cubemap
+        renderObject.reflectionMap = cubemap
     end
+
+    -- remove this object from needing cubemaps
+    context.frame.objects.needsCubemap[renderObject.id] = nil
+    context.view.objects.needsCubemap[renderObject.id] = nil
     
 	local view = { lovr.graphics.getViewPose(1) }
 	local proj = { lovr.graphics.getProjection(1) }
 	lovr.graphics.setProjection(1, mat4():perspective(0.1, 1000, math.pi/2, 1))
-	local center = object.position
+	local center = renderObject.AABB.center
 	for i,pose in ipairs{
 		lookAt(center, center + vec3(1,0,0), vec3(0,-1,0)),
 		lookAt(center, center - vec3(1,0,0), vec3(0,-1,0)),
@@ -257,23 +352,21 @@ function Renderer:generateCubemap(object, cached, context)
 		lookAt(center, center - vec3(0,0,1), vec3(0,-1,0)),
 	} do
 		local canvas = cubemap.canvas
-        context.generatingReflectionMapForObject = object
-        context.shader = self.cubemapShader
-            lovr.graphics.setShader(context.shader)
+        local myContext = tablex.copy(context)
+        myContext.view = {
+            modelView = pose,
+            projection = mat4():perspective(0.1, 1000, math.pi/2, 1)
+        }
+        context.generatingReflectionMapForObject = renderObject
+        lovr.graphics.setShader(self.cubemapShader)
 		canvas:setTexture(cubemap.texture, i)
-        
 		canvas:renderTo(function ()
-            
-
             local r,g,b,a = lovr.graphics.getBackgroundColor()
 			lovr.graphics.clear(r, g, b, a, 1, 0)
-			lovr.graphics.setViewPose(1, pose, true)
-			self:drawBuckets(context.buckets, context)
-
+            self:renderContext(myContext)
 		end)
-        context.shader = self.shader
-            lovr.graphics.setShader(context.shader)
-            lovr.graphics.flush()
+        lovr.graphics.setShader(self.shader)
+        lovr.graphics.flush()
         context.generatingReflectionMapForObject = nil
 	end
     lovr.graphics.setProjection(1,unpack(proj))
@@ -283,32 +376,54 @@ end
 function Renderer:prepareShaderForFrame(shader, context)
     local positions = {}
     local colors = {}
-    local lights = context.lights or {}
-    for _, light in ipairs(lights) do
-        local x, y, z = light.position:unpack()
+    local lights = context.frame.objects.lights
+    for id, light in lights:iter() do
+        local x, y, z = light.source.position:unpack()
         table.insert(positions, {x, y, z})
-        table.insert(colors, light.light.color)
+        table.insert(colors, light.source.light.color)
     end
-    self.lightsBlock:send('lightCount', #lights)
+    self.lightsBlock:send('lightCount', #positions)
     self.lightsBlock:send('lightColors', colors)
     self.lightsBlock:send('lightPositions', positions)
+
+    context.stats.lights = #lights
+end
+
+function Renderer:prepareShaderForView(shader, context)
+    
 end
 
 function Renderer:prepareShaderForObject(object, context)
-    local cached = context.cache[object.id]
-    if cached.reflectionMap then
-        context.shader:send("reflectionStrength", 1)
-        context.shader:send("cubemap", cached.reflectionMap.texture)
+    local shader = lovr.graphics.getShader()
+    assert(shader, "No shader set")
+    if object.reflectionMap then
+        shader:send("reflectionStrength", 1)
+        shader:send("cubemap", object.reflectionMap.texture)
     else
-        context.shader:send("reflectionStrength", 0)
+        shader:send("reflectionStrength", 0)
     end
 end
 
-function Renderer:cullTest(object, context)
-    local frustum = context.frustum
-    for i = 1, 6 do
+function Renderer:cullTest(renderObject, context)
+    -- never cull some types
+    if renderObject.source.light then 
+        return false
+    end
+
+    -- test frustrum
+    local AABB = renderObject.AABB
+
+    -- local farPlaneDistance = 10
+    -- if renderObject.distanceToCamera - AABB.radius > farPlaneDistance then
+    --     return true
+    -- end
+
+    -- print(renderObject.distanceToCamera)
+    
+    local frustum = context.view.frustum
+    for i = 1, 6 do -- 5 because skipping far plane as handled above
         local p = frustum[i]
-        local e = object.position:dot(vec3(p.x, p.y, p.z)) + p.d + object.AABB.radius
+        local e = renderObject.AABB.center:dot(vec3(p.x, p.y, p.z)) + p.d + renderObject.AABB.radius
         if e < 0 then return true end -- if outside any plane
     end
     return false
