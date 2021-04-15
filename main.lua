@@ -214,12 +214,12 @@ objects = {
             local x, y, z = object.position:unpack()
             lovr.graphics.sphere(x, y, z, object.AABB.radius)
         end,
-        hasTransparency = true,
-        hasReflection = true,
+        hasTransparency = false,
+        hasReflection = false,
     },
     helmet = {
         id = "helmet",
-        position = newVec3(0, 2.6, -3),
+        position = newVec3(0, 3.6, -3),
         AABB = {
             min = newVec3(-0.5, -0.5, -0.5), 
             max = newVec3(0.5, 0.5, 0.5), 
@@ -238,7 +238,8 @@ objects = {
 objects = {}
 for metalness = 0, 10 do
     for roughness = 0, 10 do
-        local special = metalness == 5 and roughness == 5
+        local helm = metalness == 5 and roughness == 5
+        local shiny = helm or (metalness == 6 and roughness < 6)
         objects["ball " .. metalness .. roughness] = {
             id = "ball " .. metalness .. roughness,
             position = newVec3(metalness - 5, roughness - 5, -3),
@@ -247,12 +248,17 @@ for metalness = 0, 10 do
                 max = newVec3(0.4, 0.4, 0.4), 
             },
             draw = function(object, context)
-                lovr.graphics.setColor(special and 0.3 or 1.0, 0.8, 0.8, 0.8)
                 local x, y, z = object.position:unpack()
-                lovr.graphics.sphere(x, y, z, 0.4)
+                if helm then 
+                    lovr.graphics.setColor(1, 1, 1, 1)
+                    helmet:draw(x, y, z, 0.4)
+                else
+                    lovr.graphics.setColor(shiny and 0.3 or 1.0, 0.8, 0.8, shiny and 0.8 or 1.0)
+                    lovr.graphics.sphere(x, y, z, 0.4)
+                end
             end,
-            hasTransparency = special,
-            hasReflection = special,
+            hasTransparency = shiny,
+            hasReflection = shiny,
         }
     end
 end
@@ -289,7 +295,7 @@ function lovr.draw()
     end
     renderer:render(tablex.values(objects), {drawAABB = true})
     
-    lovr.graphics.sphere(0,0,0,0.2)
+    -- lovr.graphics.sphere(0,0,0,0.2)
 end
 
 function lovr.draw2()
