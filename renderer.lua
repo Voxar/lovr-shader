@@ -552,8 +552,8 @@ end
 
 function Renderer:dynamicCubemapFarPlane(object, context)
     -- TODO: something exponential so detail near max creep up slowly and near min faster
-    local min = 1
-    local max = context.cubemapFarPlane
+    local min = object.AABB.radius
+    local max = object.AABB.radius + context.cubemapFarPlane
     local distanceToCamera = context.views[1].objectToCamera[object.id].distance
     local factor = 1 - (distanceToCamera / max)
     local k = min + max * factor
