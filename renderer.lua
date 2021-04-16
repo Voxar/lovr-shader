@@ -455,6 +455,9 @@ end
 function Renderer:prepareShaderForObject(object, context)
     local shader = lovr.graphics.getShader()
     assert(shader, "No shader set")
+    local material = object.source.material or {}
+    shader:send("alloMetalness", material.metalness or 0)
+    shader:send("alloRoughness", material.roughness or 0)
     if object.reflectionMap then
         shader:send("reflectionStrength", 1)
         shader:send("cubemap", object.reflectionMap.texture)

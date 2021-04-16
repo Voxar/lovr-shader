@@ -83,10 +83,10 @@
          
                 if (lovrViewID == 1) {         
                     // return vec4(vec3(reflectionStrength), 1.0);
-                    return vec4(refl, 1.0);
+                    return vec4(specular, 1.0);
                     // return reflections;
                 }
                 //     return vec4(N, 1.);
                 //else return vec4(N, 1);
-            return (baseColor + emissive) * vec4(lighting, 1.);
+            return (baseColor + emissive + reflections) * vec4(lighting, 1.);
         }

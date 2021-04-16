@@ -19,7 +19,9 @@ uniform int metallic;
 uniform samplerCube cubemap;
 uniform float reflectionStrength;
 uniform float time;
-//50
+
+uniform float alloMetalness;
+uniform float alloRoughness;
 
 float distributionGGX(float NdotH, float roughness) {
     float a = roughness * roughness;
@@ -44,6 +46,23 @@ vec3 fresnelSchlick(float HdotV, vec3 baseReflectivity) {
     return baseReflectivity + (1.0 - baseReflectivity) * pow(1.0 - HdotV, 5.0);
 }
 
+vec3 reflections(vec3 N, vec3 viewDir, float metalness, vec4 graphicsColor, float opacity) {
+    // cubemap reflection and refractions
+    vec3 refl = vec3(0.0);
+    vec3 refr = vec3(0.0);
+
+    vec3 n_ws=normalize(N);
+    vec3 n_vs=normalize(vNormalView);
+    n_vs=normalize(vLovrTransform * (vLovrNormalMatrixInversed * N));
+    vec3 i_vs=normalize(vViewDir);
+    float ndi=0.04+0.96*(1.0-sqrt(max(0.0,dot(n_vs,i_vs))));
+    vec3 ref = reflect(normalize(-viewDir), N).xyz;
+    refl=texture(cubemap, ref, -0.5).rgb * ndi * metalness * graphicsColor.rgb;
+    vec3 r = refract(-i_vs, n_vs, 0.66);
+    refr=texture(cubemap, vLovrViewTransposed * r).rgb * (1. - opacity);
+    return vec3(refl + refr) * reflectionStrength;
+}
+
 vec4 color(vec4 graphicsColor, sampler2D image, vec2 uv) {
     vec3 viewDir = normalize(vCameraPositionWorld - vFragmentPos);
     vec3 V = viewDir;
@@ -60,8 +79,8 @@ vec4 color(vec4 graphicsColor, sampler2D image, vec2 uv) {
     vec4 emissive = texture(lovrEmissiveTexture, uv) * lovrEmissiveColor;
 //91
     vec3 albedo = texture(lovrDiffuseTexture, lovrTexCoord).rgb * graphicsColor.rgb;
-    float metalness = texture(lovrMetalnessTexture, lovrTexCoord).b * lovrMetalness;
-    float roughness = max(texture(lovrRoughnessTexture, lovrTexCoord).g * lovrRoughness, .05);
+    float metalness = texture(lovrMetalnessTexture, lovrTexCoord).b * lovrMetalness * alloMetalness;
+    float roughness = texture(lovrRoughnessTexture, lovrTexCoord).g * lovrRoughness * alloRoughness;
     float occlusion = texture(lovrOcclusionTexture, lovrTexCoord).r;
     // Reflectance at normal incidence. F0.
     // dia-electric use 0.04 and if it's metal then use the albedo color
@@ -69,10 +88,10 @@ vec4 color(vec4 graphicsColor, sampler2D image, vec2 uv) {
 
     vec3 luminence = vec3(0.0); // luminence
     vec3 diffuse = vec3(0.), specular = vec3(0.);
-    for(int i_light = 0; i_light < lightCount; i_light++) {
-        vec3 lightPos = lightPositions[i_light].xyz;
-        vec3 lightColor = lightColors[i_light].rgb;
-        lightColor = vec3(1.0);
+    for(int i_light = 0; i_light < lightCount+1; i_light++) {
+        vec3 lightPos = i_light == lightCount ? vCameraPositionWorld : lightPositions[i_light].xyz;
+        vec3 lightColor = i_light == lightCount ? vec3(1,0,1) : lightColors[i_light].rgb;
+        // lightColor = vec3(1.0);
 
         vec3 L = normalize(lightPos - vFragmentPos);
         vec3 H = normalize(V + L);
@@ -91,21 +110,22 @@ vec4 color(vec4 graphicsColor, sampler2D image, vec2 uv) {
         vec3 F = fresnelSchlick(HdotV, baseReflectivity); // fresnel - less light rays reflect at direct angles
 
         vec3 spec = D * G * F;
-        spec /= NdotV * NdotL;
-        specular += spec;
+        spec /= 4.0 * NdotV * NdotL;
+        
         // Diffuse is all light not reflected as specular because the equal amount of enery coming in has to come out somewhere
         vec3 diff = vec3(1.0) - F;
 
         // But metallic materials absorb anything not bounced of as specular so subtract that energy
         diff *= 1.0 - metalness;
-        diffuse += diff;
+        // diff *= occlusion;
 
         // diffuse * albedo because diffuse is the wavelengths (colors) not absorbed while refracting(?)
         // divided by PI ??
         // NdotL ??
         luminence += (diff * albedo / PI + spec) * radiance * NdotL;
         
-
+        specular += spec;
+        diffuse += diff;
         // lightColor = vec3(1.);
         
         // //diffuse
@@ -119,7 +139,14 @@ vec4 color(vec4 graphicsColor, sampler2D image, vec2 uv) {
         // specular += specularStrength * spec * lightColor;
         
     }
-    vec3 ambient = ambience.rgb * albedo;
+
+    vec3 env = texture(cubemap, N).rgb;
+    // float NdotV = max(dot(N, V), 0.0000001);
+    // vec3 F = fresnelSchlick(NdotV, baseReflectivity);
+    // vec3 kD = (1.0 - F) * (1.0 - metalness);
+    // vec3 diff = env * albedo * kD;
+    // vec3 ambient = diff;// * occlusion;
+    vec3 ambient = albedo * vec3(0.03);
 
     vec3 result = ambient + luminence;
 
@@ -129,10 +156,12 @@ vec4 color(vec4 graphicsColor, sampler2D image, vec2 uv) {
     result = pow(result, vec3(1.0/2.2));
 
     if (lovrViewID == 1) {
-        return vec4(vec3(albedo), 1.);
+        return vec4(vec3(metalness * roughness), 1.);
+        // return vec4(reflections(N, viewDir, metalness, graphicsColor, tex.a), 1.);
+        // return vec4(env, 1.);
     }
 
-    return vec4(luminence, 1.0);
+    return vec4(result, 1.0);
 
     // //object color
     // vec4 baseColor = graphicsColor * texture(lovrDiffuseTexture, uv);

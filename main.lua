@@ -236,10 +236,12 @@ objects = {
     
 
 objects = {}
-for metalness = 0, 10 do
-    for roughness = 0, 10 do
+for metalness = 1, 10 do
+    for roughness = 1, 10 do
         local helm = metalness == 5 and roughness == 5
         local shiny = helm or (metalness == 6 and roughness < 6)
+        local zero = metalness == 0 and roughness == 0
+        
         objects["ball " .. metalness .. roughness] = {
             id = "ball " .. metalness .. roughness,
             position = newVec3(metalness - 5, roughness - 5, -3),
@@ -247,13 +249,21 @@ for metalness = 0, 10 do
                 min = newVec3(-0.4, -0.4, -0.4), 
                 max = newVec3(0.4, 0.4, 0.4), 
             },
+            material = {
+                metalness = metalness / 10,
+                roughness = roughness / 10,
+            },
             draw = function(object, context)
                 local x, y, z = object.position:unpack()
                 if helm then 
                     lovr.graphics.setColor(1, 1, 1, 1)
                     helmet:draw(x, y, z, 0.4)
                 else
-                    lovr.graphics.setColor(shiny and 0.3 or 1.0, 0.8, 0.8, shiny and 0.8 or 1.0)
+                    if zero then 
+                        lovr.graphics.setColor(1, 1, 1, 1)
+                    else
+                        lovr.graphics.setColor(shiny and 0.3 or 1.0, 0.8, 0.8, shiny and 0.8 or 1.0)
+                    end
                     lovr.graphics.sphere(x, y, z, 0.4)
                 end
             end,
