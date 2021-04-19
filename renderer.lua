@@ -36,6 +36,8 @@ function Renderer:_init()
 
     self.frameCount = 0
     self.viewCount = 0
+
+    self.defaultEnvironmentMap = nil
 end
 
 --- Draws all objects in list `objects`
@@ -204,16 +206,19 @@ function Renderer:prepareObjects(context)
     for i, object in ipairs(context.objects) do
         local renderObject = self.cache[object.id]
         if not renderObject then 
-            renderObject = { id = object.id }
-            renderObject.position = vec3()
+            renderObject = { 
+                id = object.id,
+                position = lovr.math.newVec3(),
+                lastPosition = lovr.math.newVec3(999999, 9999999),
+            }
             self.cache[object.id] = renderObject
         end
         renderObject.source = object
 
         --TODO: find a quicker way
         renderObject.hasTransformed = not renderObject.position or renderObject.position:distance(object.position) > 0.0001
-        renderObject.lastPosition = vec3(renderObject.position)
-        renderObject.position = lovr.math.newVec3(object.position)
+        renderObject.lastPosition:set(renderObject.position)
+        renderObject.position:set(object.position)
         
         -- AABB derivates
         local AABB = object.AABB
@@ -298,12 +303,18 @@ function Renderer:drawContext(context)
     local frame = context.frame
     local view = context.view
 
+    if self.defaultEnvironmentMap then 
+        lovr.graphics.setShader()
+        lovr.graphics.setColor(1,1,1,1)
+        lovr.graphics.skybox(self.defaultEnvironmentMap)
+    end
+
     lovr.graphics.setShader(self.shader)
 
     -- Generate cubemaps where needed
     if not context.generatingReflectionMapForObject then 
         for id, object in view.objects.needsCubemap:iter() do
-            if object.needsCubemap then 
+            if object.needsCubemap and not object.reflectionMap then 
                 self:generateCubemap(object, context)
             end
         end
@@ -458,11 +469,16 @@ function Renderer:prepareShaderForObject(object, context)
     local material = object.source.material or {}
     shader:send("alloMetalness", material.metalness or 0)
     shader:send("alloRoughness", material.roughness or 0)
-    if object.reflectionMap then
-        shader:send("reflectionStrength", 1)
-        shader:send("cubemap", object.reflectionMap.texture)
+
+    local envMap = object.reflectionMap and object.reflectionMap.texture or self.defaultEnvironmentMap
+    if not envMap then 
+        shader:send("alloEnvironmentMapType", 0)
+    elseif envMap:getType() == "cube" then
+        shader:send("alloEnvironmentMapType", 1);
+        shader:send("alloEnvironmentMapCube", envMap)
     else
-        shader:send("reflectionStrength", 0)
+        shader:send("alloEnvironmentMapType", 2);
+        shader:send("alloEnvironmentMapSpherical", envMap)
     end
 end
 

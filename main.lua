@@ -43,7 +43,7 @@ function lovr.load()
     renderer = Renderer()
     if not model then 
         model = lovr.graphics.newModel("bkd_main room_shell.glb")
-        torso = lovr.graphics.newModel("torso.glb")
+        torso = lovr.graphics.newModel("head.glb")
         helmet = lovr.graphics.newModel("helmet.glb")
         lightsBlock = lovr.graphics.newShaderBlock('uniform', {
             lightCount = 'int',
@@ -82,7 +82,8 @@ function lovr.load()
     -- }
     -- cube.map = lovr.graphics.newTexture(cube)
 
-
+    skybox = lovr.graphics.newTexture('equirectangular.png', {mipmaps = true})
+    renderer.defaultEnvironmentMap = skybox
 end
 
 local lights = {
@@ -110,14 +111,17 @@ function lovr.update(dt)
     end
     for i, light in ipairs(lights) do
         local t = time + ((math.pi*2)/#lights) * i
-        light.pos = { math.sin(t)*2, 1.7 + math.sin(t * 0.3), math.cos(t) - 3 }
+        light.pos = {
+            math.sin(t)*3,
+            math.cos(t)*3,
+            -1
+        }
+        -- light.pos = { 
+        --     math.sin(t)*2, 
+        --     1.7 + math.sin(t * 0.3), 
+        --     math.cos(t) - 3 
+        -- }
     end
-    lightsBlock:send('lightPositions', all('pos', lights) )
-    lightsBlock:send('lightColors', all('color', lights) )
-    lightsBlock:send('lightCount', #lights)
-    -- lightsBlock:send('lightCount', 0)
-    shader:send('time', time)
-    -- makeCube()
 
     if lovr.headset.wasPressed("right", "a") then 
         paused = not paused
@@ -239,30 +243,31 @@ objects = {}
 for metalness = 1, 10 do
     for roughness = 1, 10 do
         local helm = metalness == 5 and roughness == 5
-        local shiny = helm or (metalness == 6 and roughness < 6)
+        local shiny =  helm or ((metalness + roughness) % 2 == 0)
         local zero = metalness == 0 and roughness == 0
         
         objects["ball " .. metalness .. roughness] = {
             id = "ball " .. metalness .. roughness,
-            position = newVec3(metalness - 5, roughness - 5, -3),
+            position = newVec3(roughness - 5, metalness - 5, -3),
             AABB = {
                 min = newVec3(-0.4, -0.4, -0.4), 
                 max = newVec3(0.4, 0.4, 0.4), 
             },
             material = {
-                metalness = metalness / 10,
-                roughness = roughness / 10,
+                metalness = helm and 1 or metalness / 10,
+                roughness = helm and 1 or roughness / 10,
             },
             draw = function(object, context)
                 local x, y, z = object.position:unpack()
                 if helm then 
                     lovr.graphics.setColor(1, 1, 1, 1)
-                    helmet:draw(x, y, z, 0.4)
+                    torso:draw(x, y-0.3, z, 2)
+                    -- helmet:draw(x, y, z, 0.4)
                 else
                     if zero then 
                         lovr.graphics.setColor(1, 1, 1, 1)
                     else
-                        lovr.graphics.setColor(shiny and 0.3 or 1.0, 0.8, 0.8, shiny and 0.8 or 1.0)
+                        lovr.graphics.setColor(1, 0.0, 0.0, 1)
                     end
                     lovr.graphics.sphere(x, y, z, 0.4)
                 end
@@ -271,7 +276,10 @@ for metalness = 1, 10 do
             hasReflection = shiny,
         }
     end
+
 end
+
+
 
 function lovr.draw()
     -- add lights to the object list if needed
@@ -303,8 +311,13 @@ function lovr.draw()
             }
         end
     end
-    renderer:render(tablex.values(objects), {drawAABB = true})
+    renderer:render(tablex.values(objects), {drawAABB = false})
     
+
+    local shinyObject = renderer.cache["ball 55"]
+    lovr.graphics.setShader()
+    lovr.graphics.setColor(1,1,1,1)
+    -- lovr.graphics.skybox(shinyObject.reflectionMap.texture)
     -- lovr.graphics.sphere(0,0,0,0.2)
 end
 
