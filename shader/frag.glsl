@@ -1,5 +1,6 @@
 
 #define PI 3.141592653589
+#define PI2 PI / 2.0
 
 in vec3 vNormal;
 in vec3 vFragmentPos;
@@ -49,8 +50,9 @@ vec3 environmentMap(vec3 direction) {
 vec3 environmentMap(vec3 direction, float roughness) {
     if (alloEnvironmentMapType == 1) {
         // float mipmapCount = log2(float(textureSize(alloEnvironmentMapCube, 0).x));
-        float mipmapCount = floor(log2(textureSize(alloEnvironmentMapCube, 0).x)) - 0;
-        return textureLod(alloEnvironmentMapCube, direction, roughness * mipmapCount).rgb;
+        float mipmapCount = floor(log2(textureSize(alloEnvironmentMapCube, 0).x)) - 1;
+        float k =  min(sin(PI2*roughness) * 4, 1.);
+        return textureLod(alloEnvironmentMapCube, direction, k * mipmapCount).rgb;
     } 
     
     if (alloEnvironmentMapType == 2) {
@@ -272,14 +274,15 @@ vec4 color(vec4 graphicsColor, sampler2D image, vec2 uv) {
     if (lovrViewID == 1) {
         // return vec4(N, 1.);
         // return vec4(vec3(metalness * roughness), 1.);
+        // return vec4(vec3(kk), 1.);
         // return vec4(vec3(occlusion), 1.);
         // return vec4(vec3(metalness), 1.);
         // return vec4(vec3(roughness), 1.);
         // return vec4(vec3(diffuse), 1.);
         // return vec4(vec3(luminence), 1.);
-        // return vec4(vec3(environmentMap(N, 0.)), 1.);
+        // return vec4(vec3(environmentMap(R, roughness)), 1.);
         // return vec4(vec3(albedo), 1.);
-        // return vec4(vec3(specularEnvironmentMap), 1.);
+        return vec4(vec3(specularEnvironmentMap), 1.);
         return vec4(vec3(diffuseEnvironmentMap), 1.);
         // return vec4(vec3(fresnelSchlick(NdotV, baseReflectivity)), 1.);
         // return vec4(reflections(N, viewDir, metalness, graphicsColor, tex.a), 1.);s

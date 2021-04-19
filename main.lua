@@ -258,16 +258,16 @@ for metalness = 1, 10 do
                 roughness = helm and 1 or roughness / 10,
             },
             draw = function(object, context)
+                lovr.graphics.setColor(1, 1, 1, 1)
                 local x, y, z = object.position:unpack()
                 if helm then 
-                    lovr.graphics.setColor(1, 1, 1, 1)
                     -- torso:draw(x, y-0.3, z, 2)
                     helmet:draw(x, y, z, 0.4, time, 0, 1, 0)
                 else
                     if zero then 
                         lovr.graphics.setColor(1, 1, 1, 1)
                     else
-                        lovr.graphics.setColor(1, 0.0, 0.0, 1)
+                        -- lovr.graphics.setColor(1, 0.0, 0.0, 1)
                     end
                     lovr.graphics.sphere(x, y, z, 0.4)
                 end
