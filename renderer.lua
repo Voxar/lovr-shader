@@ -37,6 +37,25 @@ function Renderer:_init()
     self.frameCount = 0
     self.viewCount = 0
 
+    self.drawLayer = {
+        names = {
+            "albedo",
+            "metalness",
+            "roughness",
+            "diffuseEnv",
+            "specularEnv",
+            "diffuseLight",
+            "specularLight",
+            "occlusion",
+            "lights",
+            "ambient",
+            "emissive",
+        },
+        values = {
+            1,1,1,1,1,1,1,1,1,1,1,
+        }
+    }
+
     self.defaultEnvironmentMap = nil
 end
 
@@ -85,6 +104,13 @@ function Renderer:render(objects, options)
         ", lights: " .. stats.lights .. 
         ", Cubemaps: " .. stats.generatedCubemaps .. "("..stats.maxReflectionDepth..")"
     )
+end
+
+function Renderer:layerVisibility(layer, on)
+    if on ~= nil then
+        self.drawLayer.values[layer] = on and 1 or 0
+    end
+    return self.drawLayer.values[layer] == 1
 end
 
 -- Push a new view to render
@@ -331,9 +357,9 @@ function Renderer:drawContext(context)
     end
 
     -- Draw where we think camera is
-    lovr.graphics.setColor(1, 0, 1, 1)
-    local x, y, z = context.view.cameraPosition:unpack()
-    lovr.graphics.box('fill', 0, 0, 0, 0.1, 0.1, 0.1)
+    -- lovr.graphics.setColor(1, 0, 1, 1)
+    -- local x, y, z = context.view.cameraPosition:unpack()
+    -- lovr.graphics.box('fill', 0, 0, 0, 0.1, 0.1, 0.1)
 end
 
 function Renderer:drawObject(object, context)
@@ -384,7 +410,7 @@ function Renderer:generateCubemap(renderObject, context)
     end
 
     local cubemap = renderObject.reflectionMap
-    local cubemapSize = context.cubemapSize or 64
+    local cubemapSize = context.cubemapSize or 1024
 
     if not cubemap then
         local texture = lovr.graphics.newTexture(cubemapSize, cubemapSize, { 
@@ -432,7 +458,6 @@ function Renderer:generateCubemap(renderObject, context)
 			lovr.graphics.setViewPose(1, pose, true)
             self:renderView(context)
 		end)
-        lovr.graphics.flush()
         lovr.math.drain()
 	end
     context.generatingReflectionMapForObject = nil
@@ -456,6 +481,10 @@ function Renderer:prepareShaderForFrame(shader, context)
     self.lightsBlock:send('lightColors', colors)
     self.lightsBlock:send('lightPositions', positions)
 
+    for i, name in ipairs(self.drawLayer.names) do
+        shader:send("draw_"..name, self.drawLayer.values[i])
+    end
+
     context.stats.lights = #lights
 end
 
@@ -465,10 +494,10 @@ end
 
 function Renderer:prepareShaderForObject(object, context)
     local shader = lovr.graphics.getShader()
-    assert(shader, "No shader set")
+    if not shader then return end
     local material = object.source.material or {}
-    shader:send("alloMetalness", material.metalness or 0)
-    shader:send("alloRoughness", material.roughness or 0)
+    shader:send("alloMetalness", material.metalness or 1)
+    shader:send("alloRoughness", material.roughness or 1)
 
     local envMap = object.reflectionMap and object.reflectionMap.texture or self.defaultEnvironmentMap
     if not envMap then 

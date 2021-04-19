@@ -261,8 +261,8 @@ for metalness = 1, 10 do
                 local x, y, z = object.position:unpack()
                 if helm then 
                     lovr.graphics.setColor(1, 1, 1, 1)
-                    torso:draw(x, y-0.3, z, 2)
-                    -- helmet:draw(x, y, z, 0.4)
+                    -- torso:draw(x, y-0.3, z, 2)
+                    helmet:draw(x, y, z, 0.4, time, 0, 1, 0)
                 else
                     if zero then 
                         lovr.graphics.setColor(1, 1, 1, 1)
@@ -276,8 +276,22 @@ for metalness = 1, 10 do
             hasReflection = shiny,
         }
     end
-
 end
+
+objects["house"] = {
+    id = "house",
+    position = newVec3(0,0,0),
+    AABB = {
+        min = newVec3(-10, -10, -10), 
+        max = newVec3(10, 10, 10), 
+    },
+    draw = function(object, context)
+        lovr.graphics.setColor(1, 1, 1, 1)
+        model:draw(0,-6,0,2.5)
+    end,
+    hasTransparency = true,
+    hasReflection = true,
+}
 
 
 
@@ -304,8 +318,8 @@ function lovr.draw()
                 },
                 draw = function (object, context)
                     local x, y, z = object.position:unpack()
-                    lovr.graphics.setColor(table.unpack(object.light.color))
-                    lovr.graphics.sphere(x, y, z, 0.1)
+                    -- lovr.graphics.setColor(table.unpack(object.light.color))
+                    -- lovr.graphics.sphere(x, y, z, 0.1)
                 end,
                 light = light,
             }
@@ -365,5 +379,17 @@ function lovr.keypressed(key, scancode, repeated)
     end
     if key == 'p' then 
         paused = not paused
+    end
+
+    local keys = {"1", "2", "3", "4", "5", "6", "7", "8", "9", "0", "-", "="}
+    print(key)
+    for i = 1, #keys do
+        print("felnkgr", key, keys[i])
+        if key == keys[i] then
+            print("okfeo" .. i, keys[i])
+            local name = renderer.drawLayer[i]
+            print("grkrng", name)
+            renderer:layerVisibility(i, not renderer:layerVisibility(i))
+        end
     end
 end
