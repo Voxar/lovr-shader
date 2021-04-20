@@ -89,10 +89,75 @@ house = {
     hasReflection = true,
 }
 
+head = {
+    id = "head",
+    visible = true,
+    position = newVec3(0,0,0),
+    AABB = {
+        min = newVec3(-10, -10, -10),
+        max = newVec3(10, 10, 10),
+    },
+    draw = function(object, context)
+        if context.view.nr > 0 then 
+            local x, y, z, a, ax, ay, az = lovr.headset.getPose()
+            
+            lovr.graphics.push()
+            lovr.graphics.rotate(math.pi, 0, 1, 0)
+            helmet:draw(x, y, z, 1, a, ax, ay, az)
+            lovr.graphics.pop()
+        end
+    end,
+    hasTransparency = true,
+    hasReflection = true,
+}
+
 scenes = {}
-selectedScene = "helm"
+
+scenes.mirror = {
+    head = head,
+    house = house,
+    mirror = {
+        id = "mirror",
+        position = newVec3(0,1,-6),
+        AABB = {
+            min = newVec3(-1, -3.5, -0.05),
+            max = newVec3(1, 3.5, 0.05),
+        },
+        draw = function (self, context)
+            local x, y, z = self.position:unpack()
+            lovr.graphics.box('fill', x, y, z, 4, 2, 0.1)
+        end,
+        material = {
+            metalness = 0.8,
+            roughness = 0.001,
+        },
+        hasReflection = true
+    },
+
+    border = {
+        id = "border",
+        position = newVec3(0,1,-6),
+        AABB = {
+            min = newVec3(-1, -3.5, -0.05),
+            max = newVec3(1, 3.5, 0.05),
+        },
+        draw = function (self, context)
+            local x, y, z = self.position:unpack()
+            lovr.graphics.setColor(0.1, 0.1, 0.1)
+            lovr.graphics.box('fill', x, y, z, 4.5, 2.5, 0.05)
+        end,
+        material = {
+            metalness = 0,
+            roughness = 1,
+        },
+        hasReflection = true
+    }
+}
+
 scenes.helm = {
     house = house,
+    mirror = scenes.mirror.mirror,
+    border = scenes.mirror.border,
     sphere1 = {
         id = "sphere1",
         position = newVec3(-1.2, 1.7, -3),
@@ -157,13 +222,9 @@ scenes.helm = {
 }
 
 scenes.ballgrid = {house = house}
-local count = {x = 5, y = 5}
+local count = {x = 10, y = 10}
 for roughness = 1, count.x do
     for metalness = 1, count.y do
-        local helm = metalness == 5 and roughness == 5
-        local shiny = true
-        local zero = metalness == 0 and roughness == 0
-        
         scenes.ballgrid["ball " .. metalness .. roughness] = {
             id = "ball " .. metalness .. roughness,
             position = newVec3(roughness - count.x/2, metalness - count.y/2, -3),
@@ -172,26 +233,16 @@ for roughness = 1, count.x do
                 max = newVec3(0.4, 0.4, 0.4), 
             },
             material = {
-                metalness = helm and 1 or (metalness-1) / 4,
-                roughness = helm and 1 or (roughness-1) / 4,
+                roughness = (roughness-1) / (count.x-1),
+                metalness = (metalness-1) / (count.y-1),
             },
             draw = function(object, context)
                 lovr.graphics.setColor(1, 1, 1, 1)
                 local x, y, z = object.position:unpack()
-                if helm then 
-                    torso:draw(x, y-0.3, z, 2, time*0.5, 0, 1)
-                    -- helmet:draw(x, y, z, 0.4, time*0.5, 0, 1, 0)
-                else
-                    if zero then 
-                        lovr.graphics.setColor(1, 1, 1, 1)
-                    else
-                        -- lovr.graphics.setColor(1, 0.0, 0.0, 1)
-                    end
-                    lovr.graphics.sphere(x, y, z, 0.4)
-                end
+                lovr.graphics.sphere(x, y, z, 0.4)
             end,
-            hasTransparency = shiny,
-            hasReflection = shiny,
+            hasTransparency = true,
+            hasReflection = true,
         }
     end
 end
@@ -297,6 +348,8 @@ function lovr.update(dt)
     if lovr.headset.wasPressed("right", "a") then 
         paused = not paused
     end
+
+
 end
 
 function lovr.draw()
@@ -338,6 +391,8 @@ function lovr.draw()
             }
         end
     end
+
+    
     local stats = renderer:render(tablex.values(scene), {drawAABB = drawAABBs})
 
     
@@ -387,6 +442,7 @@ function lovr.draw()
     
     local ls = lovr.graphics.getStats()
     local info2 = ""
+    info2 = info2 .. "fps: " .. lovr.timer.getFPS() .. "\n"
     info2 = info2 .. "drawcalls: " .. ls.drawcalls .. "\n"
     info2 = info2 .. "renderpasses: " .. ls.renderpasses .. "\n"
     info2 = info2 .. "shaderswitches: " .. ls.shaderswitches .. "\n"
@@ -395,6 +451,7 @@ function lovr.draw()
     info2 = info2 .. "buffermemory: " .. ls.buffermemory .. "\n"
     info2 = info2 .. "texturememory: " .. ls.texturememory .. "\n"
     lovr.graphics.print(info2, 1.6, 1.85, 0, fontscale, 0, 0, 0, 0, 0, 'right', 'bottom')
+
 end
 
 

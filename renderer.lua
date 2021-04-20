@@ -416,7 +416,7 @@ function Renderer:drawObject(object, context)
     self:prepareShaderForObject(object, context)
     lovr.graphics.setColor(1,1,1,1)
     context.stats.drawnObjects = context.stats.drawnObjects + 1
-    object.source:draw(object, context)
+    object.source.draw(object, context)
     
     if context.drawAABB then
         local bb = object.AABB
