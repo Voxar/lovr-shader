@@ -13,6 +13,7 @@ newMat4 = lovr.math.newMat4
 require 'renderer'
 
 renderer = nil
+local drawAABBs = false
 
 environmentMaps = {
     "equirectangular.png",
@@ -43,54 +44,21 @@ function lovr.load()
         model = lovr.graphics.newModel("bkd_main room_shell.glb")
         torso = lovr.graphics.newModel("torso.glb")
         helmet = lovr.graphics.newModel("helmet.glb")
-        lightsBlock = lovr.graphics.newShaderBlock('uniform', {
-            lightCount = 'int',
-            lightPositions = { 'vec4', 32 },
-            lightColors = { 'vec4', 32 },
-        }, { usage = 'stream'})
     end
-
-    require 'shader'
-    shader = Shader():generate()
-    shader:send('specularStrength', 0.5)
-    shader:send('metallic', 500.0)
-    shader:send('viewPos', { 0.0, 0.0, 0.0} )
-    shader:send('ambience', { 0.1, 0.1, 0.1, 1.0 })
-    -- shader:send('ambience', { 1, 1, 1, 1.0 })
-
-    depthShader = require 'fill_depth_shader'
 
     lovr.graphics.setBackgroundColor(.18, .18, .20)
     lovr.graphics.setCullingEnabled(true)
 
-    local width, height = lovr.headset.getDisplayDimensions()
-    local size = math.max(width, height)
-    canvas = lovr.graphics.newCanvas(size, size, {
-        stereo = false,
-        depth = { format = 'd16', readable = true },
-    })
-    
-    -- cube = {
-    --     left   = lovr.graphics.newTexture(size, size, 1, {}),
-    --     right  = lovr.graphics.newTexture(size, size, 1, {}),
-    --     top    = lovr.graphics.newTexture(size, size, 1, {}),
-    --     bottom = lovr.graphics.newTexture(size, size, 1, {}),
-    --     front  = lovr.graphics.newTexture(size, size, 1, {}),
-    --     back   = lovr.graphics.newTexture(size, size, 1, {}),
-    -- }
-    -- cube.map = lovr.graphics.newTexture(cube)
-
-    -- skybox = lovr.graphics.newTexture('equirectangular.png', {mipmaps = true})
     renderer.defaultEnvironmentMap = lovr.graphics.newTexture(environmentMaps[selectedEnvironmentMap], {mipmaps = true})
-
     scene = scenes[selectedScene]
 end
 
 local lights = {
-  { color = {1, 0, 0}, pos = {0, 0, 0} },
-  { color = {0, 1, 0}, pos = {0, 0, 0} },
-  { color = {0, 0, 1}, pos = {0, 0, 0} },
-  { color = {1, 1, 1}, pos = {0, 0, 0} },
+  { color = {5, 0, 0}, pos = {0, 0, 0} },
+  { color = {0, 5, 0}, pos = {0, 0, 0} },
+  { color = {0, 0, 5}, pos = {0, 0, 0} },
+  { color = {5, 5, 5}, pos = {0, 0, 0} },
+  { color = {30, 30, 30}, pos = {0, 0, 0} },
 }
 
 function all(k, t)
@@ -234,11 +202,11 @@ function lovr.update(dt)
         time = time + dt
     end
     for i, light in ipairs(lights) do
-        local t = time + ((math.pi*2)/#lights) * i
+        local t = time*0.2 + ((math.pi*2)/#lights) * i
         light.pos = {
             math.sin(t)*3,
-            math.cos(t)*3,
-            -1
+            2 + math.sin(t),
+            -1 + math.cos(t)*3,
         }
     end
 
@@ -282,7 +250,7 @@ function lovr.draw()
             }
         end
     end
-    local stats = renderer:render(tablex.values(scene), {drawAABB = true})
+    local stats = renderer:render(tablex.values(scene), {drawAABB = drawAABBs})
 
     
     -- Screen-space coordinate system
@@ -302,6 +270,7 @@ function lovr.draw()
     lovr.graphics.setFont(font)
     local fontscale = 0.5/lovr.graphics.getHeight()
     lovr.graphics.translate(-0.8, -0.9, 0)
+    lovr.graphics.setColor(1,1,1,1)
     
     local info = ""
     for i, name in ipairs(renderer.drawLayer.names) do
@@ -312,6 +281,7 @@ function lovr.draw()
     info = info .. "p: pause animations\n"
     info = info .. "m: switch environment\n"
     info = info .. "b: switch scene\n"
+    info = info .. "h: toggle indoor\n"
 
     info = info .. "\n"
     info = info .. "Views: " .. stats.views .. "\n"
@@ -323,8 +293,21 @@ function lovr.draw()
     if stats.debugText then 
         info = info .. stringx.join("\n", stats.debugText) .. "\n"
     end
-
     lovr.graphics.print(info, 0, 0, 0, fontscale, 0, 0, 0, 0, 0, 'left', 'top')
+    
+    
+    
+    local ls = lovr.graphics.getStats()
+    local info2 = ""
+    info2 = info2 .. "drawcalls: " .. ls.drawcalls .. "\n"
+    info2 = info2 .. "renderpasses: " .. ls.renderpasses .. "\n"
+    info2 = info2 .. "shaderswitches: " .. ls.shaderswitches .. "\n"
+    info2 = info2 .. "buffers: " .. ls.buffers .. "\n"
+    info2 = info2 .. "textures: " .. ls.textures .. "\n"
+    info2 = info2 .. "buffermemory: " .. ls.buffermemory .. "\n"
+    info2 = info2 .. "texturememory: " .. ls.texturememory .. "\n"
+    lovr.graphics.print(info2, 1.6, 1.85, 0, fontscale, 0, 0, 0, 0, 0, 'right', 'bottom')
+
 end
 
 keys = {"1", "2", "3", "4", "5", "6", "7", "8", "9", "0", "-", "=", "t", "y", "u", "i", "o", "p"}
@@ -360,6 +343,10 @@ function lovr.keypressed(key, scancode, repeated)
     end
     if key == 'h' then
         house.visible = not house.visible
+    end
+
+    if key == 'z' then 
+        drawAABBs = not drawAABBs
     end
 
     if key == 'b' then 
