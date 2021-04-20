@@ -11,33 +11,30 @@ newVec3 = lovr.math.newVec3
 newMat4 = lovr.math.newMat4
 require 'renderer'
 
-local cubemap = {}
-local cubemapSize = 32
-cubemap.textures = {
-    lovr.graphics.newTexture(cubemapSize, cubemapSize, { format = "rg11b10f", stereo = false, type = "cube" }),
-    lovr.graphics.newTexture(cubemapSize, cubemapSize, { format = "rg11b10f", stereo = false, type = "cube" }),
-    index = 2,
-}
-cubemap.texture = cubemap.textures[cubemap.textures.index]
-
-cubemap.canvases = {
-    lovr.graphics.newCanvas(cubemap.textures[1]),
-    lovr.graphics.newCanvas(cubemap.textures[2]),
-    index = 2,
-}
-cubemap.canvas = cubemap.canvases[cubemap.canvases.index]
-
-local function switcheroo()
-	cubemap.last_texture = cubemap.texture
-	cubemap.textures.index = ((cubemap.textures.index + 1) % #cubemap.textures) + 1
-	cubemap.texture = cubemap.textures[cubemap.textures.index]
-	
-	cubemap.last_canvas = cubemap.canvas
-	cubemap.canvases.index = ((cubemap.canvases.index + 1) % #cubemap.canvases) + 1
-	cubemap.canvas = cubemap.canvases[cubemap.canvases.index]
-end
-
 renderer = nil
+
+environmentMaps = {
+    "equirectangular.png",
+    "alien.jpg",
+    "beach.jpg",
+    "bright.jpg",
+    "cave.jpg",
+    "city.jpg",
+    "cool.jpg",
+    "dark.jpg",
+    "factory.jpg",
+    "forest.jpg",
+    "home.jpg",
+    "museum.jpg",
+    "studio.jpg",
+    "thratre.jpg",
+    "underwater.jpg",
+}
+selectedEnvironmentMap = 1
+
+local font = lovr.graphics.newFont(128)  -- Font appropriate for screen-space usage
+font:setFlipEnabled(true)
+font:setPixelDensity(1)
 
 function lovr.load()
     renderer = Renderer()
@@ -83,8 +80,7 @@ function lovr.load()
     -- cube.map = lovr.graphics.newTexture(cube)
 
     -- skybox = lovr.graphics.newTexture('equirectangular.png', {mipmaps = true})
-    skybox = lovr.graphics.newTexture('museum.jpg', {mipmaps = true})
-    renderer.defaultEnvironmentMap = skybox
+    renderer.defaultEnvironmentMap = lovr.graphics.newTexture(environmentMaps[selectedEnvironmentMap], {mipmaps = true})
 end
 
 local lights = {
@@ -102,10 +98,8 @@ function all(k, t)
   return r
 end
 
-if not time then 
-    paused = true
-    time = 0
-end
+time = 0
+
 function lovr.update(dt)
     if not paused then 
         time = time + dt
@@ -117,64 +111,16 @@ function lovr.update(dt)
             math.cos(t)*3,
             -1
         }
-        -- light.pos = { 
-        --     math.sin(t)*2, 
-        --     1.7 + math.sin(t * 0.3), 
-        --     math.cos(t) - 3 
-        -- }
+    end
+
+    for i, object in ipairs(tablex.values(objects)) do
+        if object.update then object.update(object, time) end
     end
 
     if lovr.headset.wasPressed("right", "a") then 
         paused = not paused
     end
 end
-saved = false
-
-local function lookAt(eye, at, up)
-	local z_axis=vec3(eye-at):normalize()
-	local x_axis=vec3(up):cross(z_axis):normalize()
-	local y_axis=vec3(z_axis):cross(x_axis)
-	return lovr.math.newMat4(
-		x_axis.x,y_axis.x,z_axis.x,0,
-		x_axis.y,y_axis.y,z_axis.y,0,
-		x_axis.z,y_axis.z,z_axis.z,0,
-		-x_axis:dot(eye),-y_axis:dot(eye),-z_axis:dot(eye),1
-	)
-end
-
-function render(makingCubemap)
-    lovr.graphics.setColor(1, 1, 1, 1)
-    shader:send("reflectionStrength", makingCubemap and 0 or 1)
-    lovr.graphics.setBlendMode("alpha", "premultiplied")
-    lovr.graphics.clear()
-    lovr.graphics.setColor(1, 1, 1, 0.1)
-    lovr.graphics.setShader(shader)
-    lovr.graphics.sphere(-1.2, 1.7, -3, 0.5, -time * 0.5, 0, 1, 0)
-    -- lovr.graphics.sphere(0, 1.7, -3, 0.5)
-    torso:draw(0, 1.2, -3, 3, time*0.5, 0, 1, 0)
-
-    lovr.graphics.box("fill", 1.1, 2.4, -3, 0.8, 0.5, 1, -time, 1, 1, 0)
-    
-    lovr.graphics.setColor(0.3, 0.3, 0.7, 0.1)
-    shader:send("metallic", 1)
-    lovr.graphics.sphere(-0.9, math.sin(time*0.9) + 1.7, 5, 0.5, -time * 0.5, 0, 1, 0)
-    lovr.graphics.sphere(0, math.sin(time) + 1.7, 5.8, 0.5, -time * 0.5, 0, 1, 0)
-    lovr.graphics.sphere(0.9, math.sin(time*1.1) + 1.7, 5, 0.5, -time * 0.5, 0, 1, 0)
-    lovr.graphics.setColor(1, 1, 1, 1)
-    shader:send("metallic", 500)    
-    if not makingCubemap then 
-        lovr.graphics.setColor(1, 1, 1, 1)
-        lovr.graphics.setShader(shader)
-        helmet:draw(0, 2.6, -3, 0.2, time*0.0, 0, 1, 0)
-    end
-
-    for _, light in ipairs(lights) do
-        lovr.graphics.setColor(table.unpack(light.color))
-        lovr.graphics.sphere(light.pos[1], light.pos[2], light.pos[3], 0.1)
-    end
-    model:draw()
-end
-
 
 objects = {
     sphere1 = {
@@ -187,22 +133,31 @@ objects = {
         draw = function(object, context)
             lovr.graphics.setColor(1, 0.5, 0.5, 1)
             local x, y, z = object.position:unpack()
-            lovr.graphics.sphere(x, y, z, object.AABB.radius)
+            lovr.graphics.sphere(x, y, z, 0.5)
         end,
+        update = function (object, time)
+            print("hello")
+            object.position.x = math.sin(time)*2
+            object.position.z = -3 + math.cos(time)*2
+        end,
+        material = {
+            metalness = 1,
+            roughness = 0
+        },
         hasTransparency = true,
         hasReflection = true,
     },
-    sphere2 = {
-        id = "sphere2",
+    helmet = {
+        id = "helmet",
         position = newVec3(0, 1.7, -3),
         AABB = {
             min = newVec3(-0.5, -0.5, -0.5), 
             max = newVec3(0.5, 0.5, 0.5), 
         },
         draw = function(object, context)
-            lovr.graphics.setColor(1, 1, 1, 0)
+            lovr.graphics.setColor(1, 1, 1, 1)
             local x, y, z = object.position:unpack()
-            lovr.graphics.sphere(x, y, z, object.AABB.radius)
+            helmet:draw(x, y, z, 0.8, -time*0.5, 0, 1, 0)
         end,
         hasTransparency = true,
         hasReflection = true,
@@ -217,69 +172,63 @@ objects = {
         draw = function(object, context)
             lovr.graphics.setColor(0.5, 0.5, 1, 1)
             local x, y, z = object.position:unpack()
-            lovr.graphics.sphere(x, y, z, object.AABB.radius)
+            lovr.graphics.sphere(x, y, z, 0.5)
         end,
+        update = function (object, time)
+            print("hello")
+            object.position.x = math.sin(time+math.pi)*2
+            object.position.z = -3 + math.cos(time+math.pi)*2
+        end,
+        material = {
+            metalness = 0,
+            roughness = 1
+        },
         hasTransparency = false,
         hasReflection = false,
     },
-    helmet = {
-        id = "helmet",
-        position = newVec3(0, 3.6, -3),
-        AABB = {
-            min = newVec3(-0.5, -0.5, -0.5), 
-            max = newVec3(0.5, 0.5, 0.5), 
-        },
-        draw = function(object, context)
-            lovr.graphics.setColor(1, 1, 1, 1)
-            local x, y, z = object.position:unpack()
-            helmet:draw(x, y, z, 0.2, time*0.5, 0, 1, 0)
-        end,
-        hasTransparency = true,
-        hasReflection = true,
-    }
 }
     
 
 
-objects = {}
-local count = {x = 5, y = 5}
-for roughness = 1, count.x do
-    for metalness = 1, count.y do
-        local helm = metalness == 5 and roughness == 5
-        local shiny =  helm or ((metalness + roughness) % 2 == 0)
-        local zero = metalness == 0 and roughness == 0
+-- objects = {}
+-- local count = {x = 5, y = 5}
+-- for roughness = 1, count.x do
+--     for metalness = 1, count.y do
+--         local helm = metalness == 5 and roughness == 5
+--         local shiny =  helm or ((metalness + roughness) % 2 == 0)
+--         local zero = metalness == 0 and roughness == 0
         
-        objects["ball " .. metalness .. roughness] = {
-            id = "ball " .. metalness .. roughness,
-            position = newVec3(roughness - count.x/2, metalness - count.y/2, -3),
-            AABB = {
-                min = newVec3(-0.4, -0.4, -0.4), 
-                max = newVec3(0.4, 0.4, 0.4), 
-            },
-            material = {
-                metalness = helm and 1 or (metalness-1) / 4,
-                roughness = helm and 1 or (roughness-1) / 4,
-            },
-            draw = function(object, context)
-                lovr.graphics.setColor(1, 1, 1, 1)
-                local x, y, z = object.position:unpack()
-                if helm then 
-                    torso:draw(x, y-0.3, z, 2, time*0.5, 0, 1)
-                    -- helmet:draw(x, y, z, 0.4, time*0.5, 0, 1, 0)
-                else
-                    if zero then 
-                        lovr.graphics.setColor(1, 1, 1, 1)
-                    else
-                        -- lovr.graphics.setColor(1, 0.0, 0.0, 1)
-                    end
-                    lovr.graphics.sphere(x, y, z, 0.4)
-                end
-            end,
-            hasTransparency = shiny,
-            hasReflection = shiny,
-        }
-    end
-end
+--         objects["ball " .. metalness .. roughness] = {
+--             id = "ball " .. metalness .. roughness,
+--             position = newVec3(roughness - count.x/2, metalness - count.y/2, -3),
+--             AABB = {
+--                 min = newVec3(-0.4, -0.4, -0.4), 
+--                 max = newVec3(0.4, 0.4, 0.4), 
+--             },
+--             material = {
+--                 metalness = helm and 1 or (metalness-1) / 4,
+--                 roughness = helm and 1 or (roughness-1) / 4,
+--             },
+--             draw = function(object, context)
+--                 lovr.graphics.setColor(1, 1, 1, 1)
+--                 local x, y, z = object.position:unpack()
+--                 if helm then 
+--                     torso:draw(x, y-0.3, z, 2, time*0.5, 0, 1)
+--                     -- helmet:draw(x, y, z, 0.4, time*0.5, 0, 1, 0)
+--                 else
+--                     if zero then 
+--                         lovr.graphics.setColor(1, 1, 1, 1)
+--                     else
+--                         -- lovr.graphics.setColor(1, 0.0, 0.0, 1)
+--                     end
+--                     lovr.graphics.sphere(x, y, z, 0.4)
+--                 end
+--             end,
+--             hasTransparency = shiny,
+--             hasReflection = shiny,
+--         }
+--     end
+-- end
 
 objects["house"] = {
     id = "house",
@@ -299,6 +248,7 @@ objects["house"] = {
 
 
 function lovr.draw()
+    lovr.graphics.setDepthTest('lequal', true) 
     -- add lights to the object list if needed
 
     local proj = lovr.math.mat4():perspective(0.1, 10, 60 * math.pi/180, 1)
@@ -329,70 +279,78 @@ function lovr.draw()
         end
     end
     renderer:render(tablex.values(objects), {drawAABB = false})
+
     
+    -- Screen-space coordinate system
+    local pixwidth = lovr.graphics.getWidth()/2   -- Window pixel width and height
+    local pixheight = lovr.graphics.getHeight()
+    local aspect = pixwidth/pixheight           -- Window aspect ratio
+    local height = pixheight                            -- Window width and height in screen coordinates
+    local width = pixwidth                      -- ( We will pick the coordinate system [[-1,1],[-aspect,aspect]] )
+    local screenProjection = lovr.math.newMat4():orthographic(-aspect, aspect, -1, 1, -64, 64)
 
-    local shinyObject = renderer.cache["ball 55"]
-    lovr.graphics.setShader()
-    lovr.graphics.setColor(1,1,1,1)
-    -- lovr.graphics.skybox(shinyObject.reflectionMap.texture)
-    -- lovr.graphics.sphere(0,0,0,0.2)
-end
-
-function lovr.draw2()
-    local view={lovr.graphics.getViewPose(1)}
-	local proj={lovr.graphics.getProjection(1)}
-	lovr.graphics.setProjection(1,mat4():perspective(0.1,1000,math.pi/2,1))
-	local center=vec3(0, 2.6, -3)
-	switcheroo()
-
-	for i,view in ipairs{
-		lookAt(center,center+vec3(1,0,0),vec3(0,-1,0)),
-		lookAt(center,center-vec3(1,0,0),vec3(0,-1,0)),
-		lookAt(center,center+vec3(0,1,0),vec3(0,0,1)),
-		lookAt(center,center-vec3(0,1,0),vec3(0,0,-1)),
-		lookAt(center,center+vec3(0,0,1),vec3(0,-1,0)),
-		lookAt(center,center-vec3(0,0,1),vec3(0,-1,0)),
-	} do
-		local face=cubemap.canvas
-		face:setTexture(cubemap.texture,i)
-		face:renderTo(function ()
-			local r,g,b,a=lovr.graphics.getBackgroundColor()
-            -- shader:send("cubemap", cubemap.last_texture)
-			lovr.graphics.clear(r,g,b,a,1,0)
-			lovr.graphics.setViewPose(1,view,true)
-            render(true)
---    			draw_objects(cubemap.last_texture, true)
-		end)
-	end
-	lovr.graphics.setProjection(1,unpack(proj))
-	lovr.graphics.setViewPose(1,unpack(view))
-    shader:send("cubemap", cubemap.texture)
-    render()
-    if cubemap.texture then 
-        lovr.graphics.setShader()
-        -- lovr.graphics.skybox(cubemap.texture)
+    lovr.graphics.setShader(nil)
+	lovr.graphics.setDepthTest(nil)
+    lovr.graphics.origin()
+    lovr.graphics.setViewPose(1, mat4())
+    lovr.graphics.setViewPose(2, mat4():scale(0,0,0))
+    lovr.graphics.setProjection(1, screenProjection)
+    lovr.graphics.setFont(font)
+    local fontscale = 0.5/lovr.graphics.getHeight()
+    lovr.graphics.translate(-0.8, -0.9, 0)
+    
+    local info = ""
+    for i, name in ipairs(renderer.drawLayer.names) do
+        local show, only = renderer:layerVisibility(i)
+        info = info .. keys[i] .. ": " .. name .. ": " .. (show and "on" or "off") .. (only and " only" or "") .. "\n"
     end
+    info = info .. "\n"
+    info = info .. "p: pause animations\n"
+    info = info .. "m: switch environment\n"
+    lovr.graphics.print(info, 0, 0, 0, fontscale, 0, 0, 0, 0, 0, 'left', 'top')
 end
 
+keys = {"1", "2", "3", "4", "5", "6", "7", "8", "9", "0", "-", "=", "t", "y", "u", "i", "o", "p"}
+
+altDown = false
 function lovr.keypressed(key, scancode, repeated)
     if repeated then return end
     if key == 'm' then 
-        print("making")
-        
+        selectedEnvironmentMap = selectedEnvironmentMap + 1
+        if selectedEnvironmentMap > #environmentMaps then selectedEnvironmentMap = 1 end
+        print(selectedEnvironmentMap)
+        renderer.defaultEnvironmentMap = lovr.graphics.newTexture(environmentMaps[selectedEnvironmentMap], {mipmaps = true})        
     end
     if key == 'p' then 
         paused = not paused
     end
 
-    local keys = {"1", "2", "3", "4", "5", "6", "7", "8", "9", "0", "-", "="}
+    if key == 'lalt' or key == 'ralt' then
+        altDown = true
+    end
+
     print(key)
     for i = 1, #keys do
-        print("felnkgr", key, keys[i])
         if key == keys[i] then
-            print("okfeo" .. i, keys[i])
             local name = renderer.drawLayer[i]
-            print("grkrng", name)
-            renderer:layerVisibility(i, not renderer:layerVisibility(i))
+            local show, only = renderer:layerVisibility(i)
+            print(only)
+            if altDown and only then only = nil
+            elseif altDown then only = i
+            else show = not show end
+            renderer:layerVisibility(i, show, only)
         end
     end
+    if key == 'h' then
+        objects['house'].visible = not objects['house'].visible
+        pp(objects.house)
+    end
+end
+
+function lovr.keyreleased(key)
+
+    if key == 'lalt' or key == 'ralt' then
+        altDown = false
+    end
+    
 end

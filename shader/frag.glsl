@@ -39,6 +39,22 @@ uniform float draw_occlusion;
 uniform float draw_lights;
 uniform float draw_ambient;
 uniform float draw_emissive;
+uniform float draw_tonemap;
+uniform float draw_normalMap;
+
+uniform float only_albedo;
+uniform float only_metalness;
+uniform float only_roughness;
+uniform float only_diffuseEnv;
+uniform float only_specularEnv;
+uniform float only_diffuseLight;
+uniform float only_specularLight;
+uniform float only_occlusion;
+uniform float only_lights;
+uniform float only_ambient;
+uniform float only_emissive;
+uniform float only_tonemap;
+uniform float only_normalMap;
 
 vec3 environmentMap(vec3 direction);
 vec3 environmentMap(vec3 direction, float bias);
@@ -131,56 +147,36 @@ vec3 tonemap_ACES(vec3 x) {
 //     refr=texture(cubemap, vLovrViewTransposed * r).rgb * (1. - opacity);
 //     return vec3(refl + refr) * reflectionStrength;
 // }
-
-// V: view position
-// L: direcion to light
-// N: Normal
-vec3 cook(vec3 F0, vec3 V, vec3 L, vec3 N, vec3 radiance, float roughness, float metalness) {
-    vec3 H = normalize(V + L);
-
-    // Cook-Torrence BRDF
-    float NdotV = max(dot(N, V), 0.001);
-    float NdotL = max(dot(N, L), 0.001);
-    float HdotV = max(dot(H, V), 0.0);
-    float NdotH = max(dot(N, H), 0.0);
-    
-    float D = distributionGGX(NdotH, roughness); // statistical amount of light rays reflected by micro facets
-    float G = geometrySmith(NdotV, NdotL, roughness); // statistical amount of light rays not shadowed by micro facets
-    vec3 F = fresnelSchlick(HdotV, F0); // fresnel - reflections are more clear at glancing anles - ie edges of a sphere
-    // Diffuse is all light not reflected as specular because the equal amount of enery coming in has to come out somewhere
-    // But metallic materials absorb anything not bounced of as specular so subtract that energy
-    vec3 diff = (vec3(1.0) - F) * (1.0 - metalness);
-    // diff *= occlusion;
-
-    vec3 spec = D * G * F;
-    spec /= 4.0 * NdotV * NdotL;
-    
-    return spec;
-}
-
 vec4 color(vec4 graphicsColor, sampler2D image, vec2 uv) {
     vec3 viewDir = normalize(vCameraPositionWorld - vFragmentPos);
     vec3 V = viewDir;
-    vec4 Nmap = texture(lovrNormalTexture, uv);
     vec3 N = normalize(vNormal);
-    if (Nmap != vec4(1) ) {
-        N = perturb_normal(N, vCameraPositionWorld - vFragmentPos, uv);
+    
+    // Apply normalmap without tangent map
+    if (draw_normalMap > 0) {
+        vec4 Nmap = texture(lovrNormalTexture, uv);
+        if (Nmap != vec4(1) ) {
+            N = perturb_normal(N, vCameraPositionWorld - vFragmentPos, uv);
+        }
     }
 
     // mapped values
-    vec3 albedo = texture(lovrDiffuseTexture, lovrTexCoord).rgb * graphicsColor.rgb * draw_albedo;
-    vec4 emissive = texture(lovrEmissiveTexture, uv) * lovrEmissiveColor * draw_emissive;
+    vec3 albedo = texture(lovrDiffuseTexture, lovrTexCoord).rgb * graphicsColor.rgb;
+    vec4 emissive = texture(lovrEmissiveTexture, uv) * lovrEmissiveColor;
     float occlusion = texture(lovrOcclusionTexture, lovrTexCoord).r * draw_occlusion;
     float roughness = texture(lovrRoughnessTexture, lovrTexCoord).g * lovrRoughness * alloRoughness * draw_roughness;
     float metalness = texture(lovrMetalnessTexture, lovrTexCoord).b * lovrMetalness * alloMetalness * draw_metalness;
     // Reflectance at normal incidence. F0.
     // dia-electric use 0.04 and if it's metal then use the albedo color
-    vec3 baseReflectivity = mix(vec3(0.04), albedo, metalness);
+    vec3 baseColor = vec3(1.);
+    if (draw_albedo > 0.) baseColor = albedo;
+    vec3 baseReflectivity = mix(vec3(0.04), baseColor, metalness);
 
     float NdotV = max(dot(N, V), 0.001);
 
     vec3 luminence = vec3(0.0); // Lo
     vec3 diffuse = vec3(0.), specular = vec3(0.);
+    if(draw_lights > 0)
     for(int i_light = 0; i_light < lightCount; i_light++) {
         vec3 lightPos = i_light == lightCount ? vCameraPositionWorld : lightPositions[i_light].xyz;
         vec3 lightColor = i_light == lightCount ? vec3(1,0,1) : lightColors[i_light].rgb;
@@ -202,6 +198,7 @@ vec4 color(vec4 graphicsColor, sampler2D image, vec2 uv) {
         float G = geometrySmith(NdotV, NdotL, roughness); // statistical amount of light rays not shadowed by micro facets
         vec3 F = fresnelSchlick(HdotV, baseReflectivity); // fresnel - reflections are more clear at glancing anles - ie edges of a sphere
         
+        if (draw_specularLight == 0) F = vec3(0.);
         // Diffuse is all light not reflected as specular because the equal amount of enery coming in has to come out somewhere
         // But metallic materials absorb anything not bounced of as specular so subtract that energy
         vec3 diff = (vec3(1.0) - F) * (1.0 - metalness);
@@ -209,39 +206,34 @@ vec4 color(vec4 graphicsColor, sampler2D image, vec2 uv) {
 
         vec3 spec = D * G * F;
         spec /= 4.0 * NdotV * NdotL;
-        
-        spec *= draw_specularLight;
-        diff *= draw_diffuseLight;
 
+        if (draw_diffuseLight == 0) diff = vec3(1.0);
+        if (draw_albedo > 0) diff *= albedo;
+        
         // diffuse * albedo because diffuse is the wavelengths (colors) not absorbed while refracting(?)
         // divided by PI ??
         // NdotL ??
-        luminence += (diff * albedo / PI + spec) * radiance * NdotL;
+        
+        // luminence += (diff * albedo / PI + spec) * radiance * NdotL; // original
+        diff /= PI;
+        diff *= radiance;
+        spec *= radiance;
+        // luminence += (diff / PI + spec) * radiance ; // modified for debugging
+        if (draw_specularLight > 0.) luminence += spec;
+        if (draw_diffuseLight > 0.) luminence += diff;
         
         specular += spec;
         diffuse += diff;
-        // lightColor = vec3(1.);
-        
-        // //diffuse
-        // vec3 lightDir = normalize(lightPos - vFragmentPos);
-        // float diff = max(dot(norm, lightDir), 0.);
-        // diffuse += lightColor * diff * ;
-        
-        // // specular
-        // vec3 reflectDir = reflect(-lightDir, norm);
-        // float spec = pow(float(max(dot(viewDir, reflectDir), 0.0)), float(metallic)) * metalness;
-        // specular += specularStrength * spec * lightColor;
-        
     }
     diffuse /= lightCount;
-
-    luminence *= draw_lights;
+    specular /= lightCount;
 
     // environment diffuse is the color shining on us and taking up by the material
     vec3 F = fresnelSchlickRoughness(NdotV, baseReflectivity, roughness);
     vec3 kD = (1.0 - F) * (1.0 - metalness);
     vec3 diffuseEnvironmentMap = environmentMap(N, 0.75);
-    vec3 environmentDiffuse = diffuseEnvironmentMap * kD * albedo;
+    vec3 environmentDiffuse = diffuseEnvironmentMap * kD;
+    if(draw_albedo > 0) environmentDiffuse *= albedo;
 
 
     // environment specular is the color of environment reflecting off the surface of the material and into our eyes
@@ -252,50 +244,48 @@ vec4 color(vec4 graphicsColor, sampler2D image, vec2 uv) {
 
 
     // if (lovrViewID == 1)
-    //environmentSpecular  /=  4. ;
+    // environmentSpecular  /=  4. ;
 
     environmentDiffuse *= draw_diffuseEnv;
     environmentSpecular *= draw_specularEnv;
 
-    vec3 ambient = (environmentDiffuse + environmentSpecular) * (occlusion + 1-draw_occlusion);
-    // ambient *= 0.001;
+    vec3 ambient = vec3(0.);
+    if (draw_specularEnv > 0) ambient += environmentSpecular;
+    if (draw_diffuseEnv > 0) ambient += environmentDiffuse;
+    if (draw_specularEnv == 0 && draw_diffuseEnv == 0) {
+        ambient = vec3(1.0) ;
+        if (draw_albedo > 0.) ambient *= albedo;
+    }
+    if (draw_occlusion > 0) ambient *= occlusion;
 
-    ambient *= draw_ambient;
+    vec3 result = vec3(0.);
+    if (draw_ambient > 0) result += ambient;
+    if (draw_emissive > 0) result += emissive.rgb;
+    result += luminence;
 
-    vec3 result = ambient + luminence + emissive.rgb;
 
+    vec3 pre_tonemap = result;
     // HDR tonemapping
-    if (lovrViewID == 1){
-    result = result / (result + vec3(1.0));
-    result.rgb = tonemap_ACES(result.rgb);
-    } else {
-
-    result.rgb = tonemap_ACES(result.rgb);
-
+    if (draw_tonemap > 0.) {
+        result = result / (result + vec3(1.0));
+        result.rgb = tonemap_ACES(result.rgb);
     }
-    // gamma correction
-    float gamma = 1.2;
-    // result = pow(result, vec3(1.0/gamma));
 
+    // missing: gamma correction; lovr does that for us
 
-    if (lovrViewID == 1) {
-        // return vec4(N, 1.);
-        // return vec4(vec3(metalness * roughness), 1.);
-        // return vec4(vec3(kk), 1.);
-        // return vec4(vec3(occlusion), 1.);
-        // return vec4(vec3(metalness), 1.);
-        // return vec4(vec3(roughness), 1.);
-        // return vec4(vec3(diffuse), 1.);
-        // return vec4(vec3(luminence), 1.);
-        // return vec4(vec3(environmentMap(R, roughness)), 1.);
-        // return vec4(vec3(albedo), 1.);
-        // return vec4(vec3(specularEnvironmentMap), 1.);
-        // return vec4(vec3(diffuseEnvironmentMap), 1.);
-        // return vec4(vec3(fresnelSchlick(NdotV, baseReflectivity)), 1.);
-        // return vec4(reflections(N, viewDir, metalness, graphicsColor, tex.a), 1.);s
-        // return vec4(ambient, 1.);
-        // return vec4(N, 1.);
-    }
+    if (only_albedo > 0) return vec4(vec3(albedo), 1.0);
+    if (only_metalness > 0) return vec4(vec3(metalness), 1.0);
+    if (only_roughness > 0) return vec4(vec3(roughness), 1.0);
+    if (only_diffuseEnv > 0) return vec4(vec3(environmentDiffuse), 1.0);
+    if (only_specularEnv > 0) return vec4(vec3(environmentSpecular), 1.0);
+    if (only_diffuseLight > 0) return vec4(vec3(diffuse), 1.0);
+    if (only_specularLight > 0) return vec4(vec3(specular), 1.0);
+    if (only_occlusion > 0) return vec4(vec3(occlusion), 1.0);
+    if (only_lights > 0) return vec4(vec3(luminence), 1.0);
+    if (only_ambient > 0) return vec4(vec3(ambient), 1.0);
+    if (only_emissive > 0) return vec4(vec3(emissive), 1.0);
+    if (only_normalMap > 0) return vec4(N, 1.);
+    if (only_tonemap > 0) return vec4(result - pre_tonemap, 1.);
 
     return vec4(result, 1.0);
 

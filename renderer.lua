@@ -50,10 +50,11 @@ function Renderer:_init()
             "lights",
             "ambient",
             "emissive",
+            "normalMap",
+            "tonemap",
         },
-        values = {
-            1,1,1,1,1,1,1,1,1,1,1,
-        }
+        values = { 1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1},
+        only   = nil,
     }
 
     self.defaultEnvironmentMap = nil
@@ -106,16 +107,21 @@ function Renderer:render(objects, options)
     )
 end
 
-function Renderer:layerVisibility(layer, on)
+function Renderer:layerVisibility(layer, on, only)
     if on ~= nil then
         self.drawLayer.values[layer] = on and 1 or 0
+        if only or only == nil then
+            self.drawLayer.only = only and layer or nil
+        end
     end
-    return self.drawLayer.values[layer] == 1
+    return self.drawLayer.values[layer] == 1, self.drawLayer.only == layer
 end
 
 -- Push a new view to render
-function Renderer:renderView(context)
-    local newView = { nr = #context.views + 1}
+function Renderer:renderView(context, newView)
+    newView = newView or {}
+    newView.nr = #context.views + 1
+
     context.view = newView
     context.views[#context.views + 1] = newView
 
@@ -338,9 +344,9 @@ function Renderer:drawContext(context)
     lovr.graphics.setShader(self.shader)
 
     -- Generate cubemaps where needed
-    if not context.generatingReflectionMapForObject then 
+    if not view.generatingReflectionMapForObject then
         for id, object in view.objects.needsCubemap:iter() do
-            if object.needsCubemap and not object.reflectionMap then 
+            if object.needsCubemap and not object == view.generatingReflectionMapForObject then 
                 self:generateCubemap(object, context)
             end
         end
@@ -448,19 +454,18 @@ function Renderer:generateCubemap(renderObject, context)
 		lookAt(center, center - vec3(0,0,1), vec3(0,-1,0)),
 	} do
 		local canvas = cubemap.canvas
-
-        context.generatingReflectionMapForObject = renderObject
         
 		canvas:setTexture(cubemap.texture, i)
 		canvas:renderTo(function ()
             local r,g,b,a = lovr.graphics.getBackgroundColor()
 			lovr.graphics.clear(r, g, b, a, 1, 0)
 			lovr.graphics.setViewPose(1, pose, true)
-            self:renderView(context)
+            self:renderView(context, {
+                generatingReflectionMapForObject = renderObject
+            })
 		end)
         lovr.math.drain()
 	end
-    context.generatingReflectionMapForObject = nil
     lovr.graphics.setProjection(1,unpack(proj))
 	lovr.graphics.setViewPose(1,unpack(view))
     lovr.graphics.setShader(self.shader)
@@ -483,6 +488,7 @@ function Renderer:prepareShaderForFrame(shader, context)
 
     for i, name in ipairs(self.drawLayer.names) do
         shader:send("draw_"..name, self.drawLayer.values[i])
+        shader:send("only_"..name, self.drawLayer.only == i and 1 or 0)
     end
 
     context.stats.lights = #lights
@@ -515,6 +521,12 @@ function Renderer:cullTest(renderObject, context)
     -- never cull some types
     if renderObject.source.light then 
         return false
+    end
+
+    -- always cull some
+    
+    if renderObject.source.visible == false then
+        return true
     end
 
     -- test frustrum
