@@ -414,7 +414,7 @@ function Renderer:drawObject(object, context)
     -- end
     
     self:prepareShaderForObject(object, context)
-    
+    lovr.graphics.setColor(1,1,1,1)
     context.stats.drawnObjects = context.stats.drawnObjects + 1
     object.source:draw(object, context)
     

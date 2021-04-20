@@ -267,10 +267,9 @@ vec4 color(vec4 graphicsColor, sampler2D image, vec2 uv) {
     vec3 pre_tonemap = result;
     // HDR tonemapping
     if (draw_tonemap > 0.) {
-        result = result / (result + vec3(1.0));
         result.rgb = tonemap_ACES(result.rgb);
     }
-
+    
     // missing: gamma correction; lovr does that for us
 
     if (only_albedo > 0) return vec4(vec3(albedo), 1.0);

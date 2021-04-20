@@ -53,12 +53,13 @@ function lovr.load()
     scene = scenes[selectedScene]
 end
 
+local lightMult = 1
 local lights = {
-  { color = {5, 0, 0}, pos = {0, 0, 0} },
-  { color = {0, 5, 0}, pos = {0, 0, 0} },
-  { color = {0, 0, 5}, pos = {0, 0, 0} },
-  { color = {5, 5, 5}, pos = {0, 0, 0} },
-  { color = {30, 30, 30}, pos = {0, 0, 0} },
+  { color = {1, 0, 0}, pos = {0, 0, 0} },
+  { color = {0, 1, 0}, pos = {0, 0, 0} },
+  { color = {0, 0, 1}, pos = {0, 0, 0} },
+  { color = {1, 1, 1}, pos = {0, 0, 0} },
+  { color = {3, 3, 3}, pos = {0, 0, 0} },
 }
 
 function all(k, t)
@@ -195,6 +196,85 @@ for roughness = 1, count.x do
     end
 end
 
+avatar = {
+    torso = lovr.graphics.newModel("torso.glb"),
+    left = lovr.graphics.newModel("left-hand.glb"),
+    right = lovr.graphics.newModel("right-hand.glb"),
+    head = lovr.graphics.newModel("head.glb"),
+}
+scenes.avatar = {
+    torso = {
+        id = "torso",
+        position = newVec3(0, 1.2, -1),
+        AABB = {
+            min = newVec3(-0.5, -0.5, -0.5), 
+            max = newVec3(0.5, 0.5, 0.5), 
+        },
+        draw = function(object, context)
+            local x, y, z = object.position:unpack()
+            avatar.torso:draw(x, y, z)
+        end,
+        update = function (object, time)
+        end,
+        hasTransparency = true,
+        hasReflection = true,
+    },
+    head = {
+        id = "head",
+        position = newVec3(0, 1.7, -1),
+        AABB = {
+            min = newVec3(-0.5, -0.5, -0.5), 
+            max = newVec3(0.5, 0.5, 0.5), 
+        },
+        draw = function(object, context)
+            local x, y, z = object.position:unpack()
+            avatar.head:draw(x, y, z)
+        end,
+        update = function (object, time)
+            
+        end,
+        hasTransparency = true,
+        hasReflection = true,
+    },
+
+    left = {
+        id = "left",
+        position = newVec3(0.2, 1.4, -0.8),
+        AABB = {
+            min = newVec3(-0.5, -0.5, -0.5), 
+            max = newVec3(0.5, 0.5, 0.5), 
+        },
+        draw = function(object, context)
+            local x, y, z = object.position:unpack()
+            avatar.left:draw(x, y, z)
+        end,
+        update = function (object, time)
+            
+        end,
+        hasTransparency = true,
+        hasReflection = true,
+    },
+
+    right = {
+        id = "right",
+        position = newVec3(-0.2, 1.4, -0.8),
+        AABB = {
+            min = newVec3(-0.5, -0.5, -0.5), 
+            max = newVec3(0.5, 0.5, 0.5), 
+        },
+        draw = function(object, context)
+            local x, y, z = object.position:unpack()
+            avatar.right:draw(x, y, z)
+        end,
+        update = function (object, time)
+            
+        end,
+        hasTransparency = true,
+        hasReflection = true,
+    },
+    house = house,
+}
+selectedScene = "avatar"
 
 
 function lovr.update(dt)
@@ -232,6 +312,11 @@ function lovr.draw()
         local object = scene[id]
         if object then
             object.position:set(table.unpack(light.pos))
+            object.light.color = {
+                light.color[1] * lightMult,
+                light.color[2] * lightMult,
+                light.color[3] * lightMult,
+            }
         else
             scene[id] = {
                 id = 'light ' .. i,
@@ -246,7 +331,10 @@ function lovr.draw()
                     -- lovr.graphics.setColor(table.unpack(object.light.color))
                     -- lovr.graphics.sphere(x, y, z, 0.1)
                 end,
-                light = light,
+                light = {
+                    color = light.color,
+                    position = light.position
+                },
             }
         end
     end
@@ -307,8 +395,8 @@ function lovr.draw()
     info2 = info2 .. "buffermemory: " .. ls.buffermemory .. "\n"
     info2 = info2 .. "texturememory: " .. ls.texturememory .. "\n"
     lovr.graphics.print(info2, 1.6, 1.85, 0, fontscale, 0, 0, 0, 0, 0, 'right', 'bottom')
-
 end
+
 
 keys = {"1", "2", "3", "4", "5", "6", "7", "8", "9", "0", "-", "=", "t", "y", "u", "i", "o", "p"}
 
@@ -347,6 +435,11 @@ function lovr.keypressed(key, scancode, repeated)
 
     if key == 'z' then 
         drawAABBs = not drawAABBs
+    end
+
+    if key == 'l' then 
+        lightMult = lightMult + 1
+        if lightMult > 5 then lightMult = 1 end
     end
 
     if key == 'b' then 
