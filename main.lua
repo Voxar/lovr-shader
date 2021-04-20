@@ -12,6 +12,8 @@ newVec3 = lovr.math.newVec3
 newMat4 = lovr.math.newMat4
 require 'renderer'
 
+local is_desktop = lovr.headset.getDriver() == "desktop"
+
 renderer = nil
 local drawAABBs = false
 
@@ -55,11 +57,11 @@ end
 
 local lightMult = 1
 local lights = {
-  { color = {1, 0, 0}, pos = {0, 0, 0} },
-  { color = {0, 1, 0}, pos = {0, 0, 0} },
-  { color = {0, 0, 1}, pos = {0, 0, 0} },
-  { color = {1, 1, 1}, pos = {0, 0, 0} },
-  { color = {3, 3, 3}, pos = {0, 0, 0} },
+    { color = {3, 3, 3}, pos = {0, 0, 0} },
+    { color = {1, 0, 0}, pos = {0, 0, 0} },
+    { color = {0, 1, 0}, pos = {0, 0, 0} },
+    { color = {0, 0, 1}, pos = {0, 0, 0} },
+    { color = {1, 1, 1}, pos = {0, 0, 0} },
 }
 
 function all(k, t)
@@ -345,10 +347,23 @@ function lovr.update(dt)
         if object.update then object.update(object, time) end
     end
 
-    if lovr.headset.wasPressed("right", "a") then 
-        paused = not paused
+    for _,name in ipairs{"a", "b", "x", "y"} do
+        if lovr.headset.wasPressed("left", name) then 
+            handleKey("vr_"..name, true)
+        end
+        if lovr.headset.wasPressed("right", name) then 
+            handleKey("vr_"..name, true)
+        end
     end
-
+    for _,name in ipairs{"left", "right"} do
+        if lovr.headset.wasPressed(name, "trigger") then 
+            handleKey("vr_"..name.."_trigger", true)
+        end
+        if lovr.headset.wasPressed(name, "grip") then 
+            handleKey("vr_"..name.."_grip", true)
+        end
+    end
+    
 
 end
 
@@ -395,7 +410,8 @@ function lovr.draw()
     
     local stats = renderer:render(tablex.values(scene), {drawAABB = drawAABBs})
 
-    
+    if not is_desktop then return end
+
     -- Screen-space coordinate system
     local pixwidth = lovr.graphics.getWidth()/2   -- Window pixel width and height
     local pixheight = lovr.graphics.getHeight()
@@ -438,8 +454,6 @@ function lovr.draw()
     end
     lovr.graphics.print(info, 0, 0, 0, fontscale, 0, 0, 0, 0, 0, 'left', 'top')
     
-    
-    
     local ls = lovr.graphics.getStats()
     local info2 = ""
     info2 = info2 .. "fps: " .. lovr.timer.getFPS() .. "\n"
@@ -460,21 +474,31 @@ keys = {"1", "2", "3", "4", "5", "6", "7", "8", "9", "0", "-", "=", "t", "y", "u
 altDown = false
 function lovr.keypressed(key, scancode, repeated)
     if repeated then return end
-    if key == 'm' then 
+    handleKey(key, true, false)
+end
+
+function handleKey(key, pressed, vr)
+
+    if key == 'lalt' or key == 'ralt' then
+        altDown = pressed
+    end
+
+    if not pressed then return end
+
+    if key == 'vr_a' then 
+        paused = not paused
+    end
+
+    if key == 'm' or key == 'vr_right_trigger' then
         selectedEnvironmentMap = selectedEnvironmentMap + 1
         if selectedEnvironmentMap > #environmentMaps then selectedEnvironmentMap = 1 end
         print(selectedEnvironmentMap)
         renderer.defaultEnvironmentMap = lovr.graphics.newTexture(environmentMaps[selectedEnvironmentMap], {mipmaps = true})        
     end
-    if key == 'p' then 
+    if key == 'p' or key == 'vr_left_trigger' then
         paused = not paused
     end
 
-    if key == 'lalt' or key == 'ralt' then
-        altDown = true
-    end
-
-    print(key)
     for i = 1, #keys do
         if key == keys[i] then
             local name = renderer.drawLayer[i]
@@ -486,11 +510,12 @@ function lovr.keypressed(key, scancode, repeated)
             renderer:layerVisibility(i, show, only)
         end
     end
-    if key == 'h' then
+
+    if key == 'h' or key == 'vr_y' then
         house.visible = not house.visible
     end
 
-    if key == 'z' then 
+    if key == 'z' or key == 'vr_b' then 
         drawAABBs = not drawAABBs
     end
 
@@ -499,7 +524,7 @@ function lovr.keypressed(key, scancode, repeated)
         if lightMult > 5 then lightMult = 1 end
     end
 
-    if key == 'b' then 
+    if key == 'b' or key == 'vr_x' then 
         local names = tablex.keys(scenes)
         local i = tablex.find(names, selectedScene) + 1
         if i > #names then i = 1 end
@@ -509,9 +534,5 @@ function lovr.keypressed(key, scancode, repeated)
 end
 
 function lovr.keyreleased(key)
-
-    if key == 'lalt' or key == 'ralt' then
-        altDown = false
-    end
-    
+    handleKey(key, false, false)
 end

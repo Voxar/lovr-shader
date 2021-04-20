@@ -10,6 +10,8 @@ local OrderedMap = require('pl.OrderedMap')
 
 require 'shader'
 
+local is_desktop = lovr.headset.getDriver() == "desktop"
+
 Renderer = class.Renderer()
 local lovr = lovr -- help vscode lua plugin a bit
 
@@ -18,8 +20,8 @@ function Renderer:_init()
     self.cache = {}
 
     self.shaderObj = Shader()
-    self.shader = self.shaderObj:generate()
-    self.cubemapShader = self.shaderObj:generate({stereo = false})
+    self.shader = self.shaderObj:generate({lights = true})
+    self.cubemapShader = self.shaderObj:generate({stereo = false, lights = false})
 
     self.standardShaders = {
         self.shader, 
@@ -27,12 +29,6 @@ function Renderer:_init()
     }
     
     self.lightsBlock = self.shaderObj.lightsBlock
-    for _, shader in ipairs(self.standardShaders) do
-        shader:send('specularStrength', 0.5)
-        shader:send('metallic', 500.0)
-        shader:send('viewPos', { 0.0, 0.0, 0.0} )
-        shader:send('ambience', { 0.1, 0.1, 0.1, 1.0 })
-    end
 
     self.frameCount = 0
     self.viewCount = 0
@@ -165,7 +161,10 @@ function Renderer:prepareFrame(context)
 
     frame.nr = self.lastFrameNumber + 1
     frame.cubemapDepth = 0
-    frame.cubemapLimit = { count = 0, max = 2 }
+    frame.cubemapLimit = { 
+        count = 0, 
+        max = is_desktop and 2 or 0
+    }
 
     frame.prepared = true
     context.frame = frame
@@ -449,14 +448,15 @@ function Renderer:generateCubemap(renderObject, context)
     local cubemap = renderObject.reflectionMap
     local cubemapSize = context.cubemapSize or 1024
 
+
     if not cubemap then
         print("NEW CM", context.frame.nr)
         local texture = lovr.graphics.newTexture(cubemapSize, cubemapSize, { 
             format = "rg11b10f",
-            stereo = false,
+            stereo = not is_desktop,
             type = "cube"
         })
-        local canvas = lovr.graphics.newCanvas(texture, { stereo = false })
+        local canvas = lovr.graphics.newCanvas(texture, { stereo = not is_desktop })
         cubemap = { 
             texture = texture,
             canvas = canvas,
@@ -486,6 +486,7 @@ function Renderer:generateCubemap(renderObject, context)
     local farPlane = 1000
     cubemap.source.lod = farPlane
 	lovr.graphics.setProjection(1, mat4():perspective(0.1, farPlane, math.pi/2, 1))
+
     lovr.graphics.setShader(self.cubemapShader)
     
 	local center = renderObject.AABB.center
@@ -526,7 +527,8 @@ function Renderer:prepareShaderForFrame(shader, context)
         table.insert(positions, {x, y, z})
         table.insert(colors, light.source.light.color)
     end
-    self.lightsBlock:send('lightCount', #positions)
+    self.lightsBlock:send('lightCount', 1)
+    -- self.lightsBlock:send('lightCount', #positions)
     self.lightsBlock:send('lightColors', colors)
     self.lightsBlock:send('lightPositions', positions)
 

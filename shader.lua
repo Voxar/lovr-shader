@@ -70,7 +70,8 @@ function Shader:generate(options)
     local shader = lovr.graphics.newShader(vert, frag, {
         stereo = options.stereo,
         flags = {
-            highp = true
+            highp = true,
+            lights = options.lights
         }
     })
     shader:sendBlock('Lights', self.lightsBlock)
