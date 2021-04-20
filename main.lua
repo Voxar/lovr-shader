@@ -43,7 +43,7 @@ function lovr.load()
     renderer = Renderer()
     if not model then 
         model = lovr.graphics.newModel("bkd_main room_shell.glb")
-        torso = lovr.graphics.newModel("head.glb")
+        torso = lovr.graphics.newModel("torso.glb")
         helmet = lovr.graphics.newModel("helmet.glb")
         lightsBlock = lovr.graphics.newShaderBlock('uniform', {
             lightCount = 'int',
@@ -82,7 +82,8 @@ function lovr.load()
     -- }
     -- cube.map = lovr.graphics.newTexture(cube)
 
-    skybox = lovr.graphics.newTexture('equirectangular.png', {mipmaps = true})
+    -- skybox = lovr.graphics.newTexture('equirectangular.png', {mipmaps = true})
+    skybox = lovr.graphics.newTexture('museum.jpg', {mipmaps = true})
     renderer.defaultEnvironmentMap = skybox
 end
 
@@ -239,30 +240,32 @@ objects = {
 }
     
 
+
 objects = {}
-for metalness = 1, 10 do
-    for roughness = 1, 10 do
+local count = {x = 5, y = 5}
+for roughness = 1, count.x do
+    for metalness = 1, count.y do
         local helm = metalness == 5 and roughness == 5
         local shiny =  helm or ((metalness + roughness) % 2 == 0)
         local zero = metalness == 0 and roughness == 0
         
         objects["ball " .. metalness .. roughness] = {
             id = "ball " .. metalness .. roughness,
-            position = newVec3(roughness - 5, metalness - 5, -3),
+            position = newVec3(roughness - count.x/2, metalness - count.y/2, -3),
             AABB = {
                 min = newVec3(-0.4, -0.4, -0.4), 
                 max = newVec3(0.4, 0.4, 0.4), 
             },
             material = {
-                metalness = helm and 1 or metalness / 10,
-                roughness = helm and 1 or roughness / 10,
+                metalness = helm and 1 or (metalness-1) / 4,
+                roughness = helm and 1 or (roughness-1) / 4,
             },
             draw = function(object, context)
                 lovr.graphics.setColor(1, 1, 1, 1)
                 local x, y, z = object.position:unpack()
                 if helm then 
-                    -- torso:draw(x, y-0.3, z, 2)
-                    helmet:draw(x, y, z, 0.4, time, 0, 1, 0)
+                    torso:draw(x, y-0.3, z, 2, time*0.5, 0, 1)
+                    -- helmet:draw(x, y, z, 0.4, time*0.5, 0, 1, 0)
                 else
                     if zero then 
                         lovr.graphics.setColor(1, 1, 1, 1)
@@ -375,7 +378,7 @@ function lovr.keypressed(key, scancode, repeated)
     if repeated then return end
     if key == 'm' then 
         print("making")
-        makeCube()
+        
     end
     if key == 'p' then 
         paused = not paused

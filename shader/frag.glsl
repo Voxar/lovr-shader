@@ -51,7 +51,7 @@ vec3 environmentMap(vec3 direction, float roughness) {
     if (alloEnvironmentMapType == 1) {
         // float mipmapCount = log2(float(textureSize(alloEnvironmentMapCube, 0).x));
         float mipmapCount = floor(log2(textureSize(alloEnvironmentMapCube, 0).x)) - 1;
-        float k =  min(sin(PI2*roughness) * 4, 1.);
+        float k =  min(sin(PI2*roughness) * 2, 1.);
         return textureLod(alloEnvironmentMapCube, direction, k * mipmapCount).rgb;
     } 
     
@@ -60,9 +60,10 @@ vec3 environmentMap(vec3 direction, float roughness) {
         float phi = atan(direction.x, -direction.z);
         vec2 cubeUv = vec2(.5 + phi / (2. * PI), theta / PI);
         // float mipmapCount = log2(float(textureSize(alloEnvironmentMapSpherical, 0).x));
-        float mipmapCount = floor(log2(textureSize(alloEnvironmentMapSpherical, 0).x)) - 1;
+        float mipmapCount = floor(log2(textureSize(alloEnvironmentMapSpherical, 0).x)) - 2;
         // return textureLod(alloEnvironmentMapSpherical, cubeUv, ).rgb;
-        return textureLod(alloEnvironmentMapSpherical, cubeUv, mipmapCount * roughness).rgb;
+        float k =  min(sin(PI2*roughness) * 2, 1.);
+        return textureLod(alloEnvironmentMapSpherical, cubeUv, k * mipmapCount).rgb;
     }
     return vec3(0.0);
 }
@@ -247,11 +248,11 @@ vec4 color(vec4 graphicsColor, sampler2D image, vec2 uv) {
     vec3 R = reflect(-V, N);
     vec2 lookup = prefilteredBRDF(NdotV, roughness); // microfacet statistical amount of light rays hitting us
     vec3 specularEnvironmentMap = environmentMap(R, roughness);
-    vec3 environmentSpecular = specularEnvironmentMap * (baseReflectivity * lookup.r + lookup.g);
+    vec3 environmentSpecular = specularEnvironmentMap * (F * lookup.r + lookup.g);
 
 
-    if (lovrViewID == 1)
-    environmentSpecular /= 4. * NdotV ;
+    // if (lovrViewID == 1)
+    //environmentSpecular  /=  4. ;
 
     environmentDiffuse *= draw_diffuseEnv;
     environmentSpecular *= draw_specularEnv;
@@ -264,11 +265,17 @@ vec4 color(vec4 graphicsColor, sampler2D image, vec2 uv) {
     vec3 result = ambient + luminence + emissive.rgb;
 
     // HDR tonemapping
-    // result = result / (result + vec3(1.0));
+    if (lovrViewID == 1){
+    result = result / (result + vec3(1.0));
     result.rgb = tonemap_ACES(result.rgb);
+    } else {
+
+    result.rgb = tonemap_ACES(result.rgb);
+
+    }
     // gamma correction
-    float gamma = 2.2;
-    result = pow(result, vec3(1.0/gamma));
+    float gamma = 1.2;
+    // result = pow(result, vec3(1.0/gamma));
 
 
     if (lovrViewID == 1) {
@@ -282,8 +289,8 @@ vec4 color(vec4 graphicsColor, sampler2D image, vec2 uv) {
         // return vec4(vec3(luminence), 1.);
         // return vec4(vec3(environmentMap(R, roughness)), 1.);
         // return vec4(vec3(albedo), 1.);
-        return vec4(vec3(specularEnvironmentMap), 1.);
-        return vec4(vec3(diffuseEnvironmentMap), 1.);
+        // return vec4(vec3(specularEnvironmentMap), 1.);
+        // return vec4(vec3(diffuseEnvironmentMap), 1.);
         // return vec4(vec3(fresnelSchlick(NdotV, baseReflectivity)), 1.);
         // return vec4(reflections(N, viewDir, metalness, graphicsColor, tex.a), 1.);s
         // return vec4(ambient, 1.);
