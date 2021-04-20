@@ -302,11 +302,11 @@ function Renderer:prepareObjects(context)
                 local b = list[bid]
                 assert(a and b)
                 local a_score = scores[aid] or (
-                        (1/view.objectToCamera[aid].distance) * -- smaller is better
+                        (view.objectToCamera[aid].distance) * -- smaller is better
                         (a.reflectionMap and (frame.nr - a.reflectionMap.source.frameNr) or frame.nr) -- larger is better
                 )
                 local b_score = scores[bid] or (
-                        (1/view.objectToCamera[bid].distance) * -- smaller is better
+                        (view.objectToCamera[bid].distance) * -- smaller is better
                         (b.reflectionMap and (frame.nr - b.reflectionMap.source.frameNr) or frame.nr) -- larger is better
                 )
                 
