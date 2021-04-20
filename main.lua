@@ -4,6 +4,7 @@ package.path = '/sdcard/Android/data/org.lovr.app/files/lib/share/lua/' .. versi
 package.cpath = 'lib/lib/lua/' .. version .. '/?.so;' .. package.cpath
 local pp = require('pl.pretty').dump
 local tablex = require('pl.tablex')
+local stringx = require('pl.stringx')
 
 local lovr = lovr -- help the vscode lua plugin a bit
 vec3 = lovr.math.vec3
@@ -81,6 +82,8 @@ function lovr.load()
 
     -- skybox = lovr.graphics.newTexture('equirectangular.png', {mipmaps = true})
     renderer.defaultEnvironmentMap = lovr.graphics.newTexture(environmentMaps[selectedEnvironmentMap], {mipmaps = true})
+
+    scene = scenes[selectedScene]
 end
 
 local lights = {
@@ -100,29 +103,27 @@ end
 
 time = 0
 
-function lovr.update(dt)
-    if not paused then 
-        time = time + dt
-    end
-    for i, light in ipairs(lights) do
-        local t = time + ((math.pi*2)/#lights) * i
-        light.pos = {
-            math.sin(t)*3,
-            math.cos(t)*3,
-            -1
-        }
-    end
 
-    for i, object in ipairs(tablex.values(objects)) do
-        if object.update then object.update(object, time) end
-    end
+house = {
+    id = "house",
+    visible = true,
+    position = newVec3(0,0,0),
+    AABB = {
+        min = newVec3(-10, -10, -10), 
+        max = newVec3(10, 10, 10), 
+    },
+    draw = function(object, context)
+        lovr.graphics.setColor(1, 1, 1, 1)
+        model:draw(0,-6,0,2.5)
+    end,
+    hasTransparency = true,
+    hasReflection = true,
+}
 
-    if lovr.headset.wasPressed("right", "a") then 
-        paused = not paused
-    end
-end
-
-objects = {
+scenes = {}
+selectedScene = "helm"
+scenes.helm = {
+    house = house,
     sphere1 = {
         id = "sphere1",
         position = newVec3(-1.2, 1.7, -3),
@@ -136,7 +137,6 @@ objects = {
             lovr.graphics.sphere(x, y, z, 0.5)
         end,
         update = function (object, time)
-            print("hello")
             object.position.x = math.sin(time)*2
             object.position.z = -3 + math.cos(time)*2
         end,
@@ -175,7 +175,6 @@ objects = {
             lovr.graphics.sphere(x, y, z, 0.5)
         end,
         update = function (object, time)
-            print("hello")
             object.position.x = math.sin(time+math.pi)*2
             object.position.z = -3 + math.cos(time+math.pi)*2
         end,
@@ -187,65 +186,70 @@ objects = {
         hasReflection = false,
     },
 }
-    
 
-
--- objects = {}
--- local count = {x = 5, y = 5}
--- for roughness = 1, count.x do
---     for metalness = 1, count.y do
---         local helm = metalness == 5 and roughness == 5
---         local shiny =  helm or ((metalness + roughness) % 2 == 0)
---         local zero = metalness == 0 and roughness == 0
+scenes.ballgrid = {house = house}
+local count = {x = 5, y = 5}
+for roughness = 1, count.x do
+    for metalness = 1, count.y do
+        local helm = metalness == 5 and roughness == 5
+        local shiny = true
+        local zero = metalness == 0 and roughness == 0
         
---         objects["ball " .. metalness .. roughness] = {
---             id = "ball " .. metalness .. roughness,
---             position = newVec3(roughness - count.x/2, metalness - count.y/2, -3),
---             AABB = {
---                 min = newVec3(-0.4, -0.4, -0.4), 
---                 max = newVec3(0.4, 0.4, 0.4), 
---             },
---             material = {
---                 metalness = helm and 1 or (metalness-1) / 4,
---                 roughness = helm and 1 or (roughness-1) / 4,
---             },
---             draw = function(object, context)
---                 lovr.graphics.setColor(1, 1, 1, 1)
---                 local x, y, z = object.position:unpack()
---                 if helm then 
---                     torso:draw(x, y-0.3, z, 2, time*0.5, 0, 1)
---                     -- helmet:draw(x, y, z, 0.4, time*0.5, 0, 1, 0)
---                 else
---                     if zero then 
---                         lovr.graphics.setColor(1, 1, 1, 1)
---                     else
---                         -- lovr.graphics.setColor(1, 0.0, 0.0, 1)
---                     end
---                     lovr.graphics.sphere(x, y, z, 0.4)
---                 end
---             end,
---             hasTransparency = shiny,
---             hasReflection = shiny,
---         }
---     end
--- end
-
-objects["house"] = {
-    id = "house",
-    position = newVec3(0,0,0),
-    AABB = {
-        min = newVec3(-10, -10, -10), 
-        max = newVec3(10, 10, 10), 
-    },
-    draw = function(object, context)
-        lovr.graphics.setColor(1, 1, 1, 1)
-        model:draw(0,-6,0,2.5)
-    end,
-    hasTransparency = true,
-    hasReflection = true,
-}
+        scenes.ballgrid["ball " .. metalness .. roughness] = {
+            id = "ball " .. metalness .. roughness,
+            position = newVec3(roughness - count.x/2, metalness - count.y/2, -3),
+            AABB = {
+                min = newVec3(-0.4, -0.4, -0.4), 
+                max = newVec3(0.4, 0.4, 0.4), 
+            },
+            material = {
+                metalness = helm and 1 or (metalness-1) / 4,
+                roughness = helm and 1 or (roughness-1) / 4,
+            },
+            draw = function(object, context)
+                lovr.graphics.setColor(1, 1, 1, 1)
+                local x, y, z = object.position:unpack()
+                if helm then 
+                    torso:draw(x, y-0.3, z, 2, time*0.5, 0, 1)
+                    -- helmet:draw(x, y, z, 0.4, time*0.5, 0, 1, 0)
+                else
+                    if zero then 
+                        lovr.graphics.setColor(1, 1, 1, 1)
+                    else
+                        -- lovr.graphics.setColor(1, 0.0, 0.0, 1)
+                    end
+                    lovr.graphics.sphere(x, y, z, 0.4)
+                end
+            end,
+            hasTransparency = shiny,
+            hasReflection = shiny,
+        }
+    end
+end
 
 
+
+function lovr.update(dt)
+    if not paused then 
+        time = time + dt
+    end
+    for i, light in ipairs(lights) do
+        local t = time + ((math.pi*2)/#lights) * i
+        light.pos = {
+            math.sin(t)*3,
+            math.cos(t)*3,
+            -1
+        }
+    end
+
+    for i, object in ipairs(tablex.values(scene)) do
+        if object.update then object.update(object, time) end
+    end
+
+    if lovr.headset.wasPressed("right", "a") then 
+        paused = not paused
+    end
+end
 
 function lovr.draw()
     lovr.graphics.setDepthTest('lequal', true) 
@@ -257,11 +261,11 @@ function lovr.draw()
     
     for i, light in ipairs(lights) do
         local id = 'light ' .. i
-        local object = objects[id]
+        local object = scene[id]
         if object then
             object.position:set(table.unpack(light.pos))
         else
-            objects[id] = {
+            scene[id] = {
                 id = 'light ' .. i,
                 type = 'light',
                 position = newVec3(table.unpack(light.pos)),
@@ -278,7 +282,7 @@ function lovr.draw()
             }
         end
     end
-    renderer:render(tablex.values(objects), {drawAABB = false})
+    local stats = renderer:render(tablex.values(scene), {drawAABB = true})
 
     
     -- Screen-space coordinate system
@@ -307,6 +311,19 @@ function lovr.draw()
     info = info .. "\n"
     info = info .. "p: pause animations\n"
     info = info .. "m: switch environment\n"
+    info = info .. "b: switch scene\n"
+
+    info = info .. "\n"
+    info = info .. "Views: " .. stats.views .. "\n"
+    info = info .. "Objects: " .. stats.drawnObjects .. "\n"
+    info = info .. "Culled: " .. stats.culledObjects .. "\n"
+    info = info .. "Lights: " .. stats.lights .. "\n"
+    info = info .. "Cubemaps: " .. stats.generatedCubemaps .. "("..stats.maxReflectionDepth..")\n"
+    info = info .. stringx.join(", ", stats.cubemapTargets) .. "\n"
+    if stats.debugText then 
+        info = info .. stringx.join("\n", stats.debugText) .. "\n"
+    end
+
     lovr.graphics.print(info, 0, 0, 0, fontscale, 0, 0, 0, 0, 0, 'left', 'top')
 end
 
@@ -342,8 +359,15 @@ function lovr.keypressed(key, scancode, repeated)
         end
     end
     if key == 'h' then
-        objects['house'].visible = not objects['house'].visible
-        pp(objects.house)
+        house.visible = not house.visible
+    end
+
+    if key == 'b' then 
+        local names = tablex.keys(scenes)
+        local i = tablex.find(names, selectedScene) + 1
+        if i > #names then i = 1 end
+        selectedScene = names[i]
+        scene = scenes[selectedScene]
     end
 end
 

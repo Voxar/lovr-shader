@@ -36,6 +36,7 @@ function Renderer:_init()
 
     self.frameCount = 0
     self.viewCount = 0
+    self.lastFrameNumber = 0
 
     self.drawLayer = {
         names = {
@@ -84,11 +85,13 @@ function Renderer:render(objects, options)
     local context = options or {}
     context.objects = objects
     context.stats = {
-        views = 0,
-        drawnObjects = 0,
-        culledObjects = 0,
-        generatedCubemaps = 0,
-        maxReflectionDepth = 0
+        views = 0, -- number of passes rendered
+        drawnObjects = 0, -- number of objects drawn (counts same object each pass)
+        culledObjects = 0, -- number of objects that was not drawn (counts same object each pass)
+        generatedCubemaps = 0, -- number of cubemaps generated
+        maxReflectionDepth = 0, -- max reached depth (cubemap gen triggers a cubemap gen. This should not happen.)
+        cubemapTargets = {}, -- object id's that got a cubemap generated this frame
+        debugText = {}, -- just strings the renderer would like to output to the screen
     }
 
     context.cubemapFarPlane = context.cubemapFarPlane or 10
@@ -97,14 +100,9 @@ function Renderer:render(objects, options)
 
     self:renderView(context)
 
-    local stats = context.stats
-    print(
-        "Views: " .. stats.views .. 
-        ", Objects: " .. stats.drawnObjects .. 
-        ", Culled: " .. stats.culledObjects .. 
-        ", lights: " .. stats.lights .. 
-        ", Cubemaps: " .. stats.generatedCubemaps .. "("..stats.maxReflectionDepth..")"
-    )
+    self.lastFrameNumber = context.frame.nr
+
+    return context.stats
 end
 
 function Renderer:layerVisibility(layer, on, only)
@@ -165,7 +163,9 @@ function Renderer:prepareFrame(context)
     -- Setup for this frame. Split objects for exampel?
     local frame = context.frame or {}
 
+    frame.nr = self.lastFrameNumber + 1
     frame.cubemapDepth = 0
+    frame.cubemapLimit = { count = 0, max = 2 }
 
     frame.prepared = true
     context.frame = frame
@@ -290,12 +290,37 @@ function Renderer:prepareObjects(context)
             return view.objectToCamera[a].distance < view.objectToCamera[b].distance
         end)
 
-        -- Get a sorted list of need cubemaps
-        view.objects.needsCubemap = OrderedMap(frame.objects.needsCubemap)
-        list = view.objects.needsCubemap
-        view.objects.needsCubemap:sort(function(a, b)
-            return view.objectToCamera[a].distance > view.objectToCamera[b].distance
-        end)
+        if context.view.generatingReflectionMapForObject then 
+            view.objects.needsCubemap = OrderedMap()
+        else
+            -- Get a sorted list of need cubemaps
+            view.objects.needsCubemap = OrderedMap(frame.objects.needsCubemap)
+            local list = view.objects.needsCubemap
+            local scores = {}
+            view.objects.needsCubemap:sort(function(aid, bid)
+                local a = list[aid]
+                local b = list[bid]
+                assert(a and b)
+                local a_score = scores[aid] or (
+                        (1/view.objectToCamera[aid].distance) * -- smaller is better
+                        (a.reflectionMap and (frame.nr - a.reflectionMap.source.frameNr) or frame.nr) -- larger is better
+                )
+                local b_score = scores[bid] or (
+                        (1/view.objectToCamera[bid].distance) * -- smaller is better
+                        (b.reflectionMap and (frame.nr - b.reflectionMap.source.frameNr) or frame.nr) -- larger is better
+                )
+                
+                scores[aid] = a_score
+                scores[bid] = b_score
+                return a_score > b_score
+            end)
+            for id, object in view.objects.needsCubemap:iter() do
+                local score = scores[id]
+                if score then 
+                    table.insert(context.stats.debugText, id .. ": " .. score)
+                end
+            end
+        end
     end
 end
 
@@ -344,11 +369,9 @@ function Renderer:drawContext(context)
     lovr.graphics.setShader(self.shader)
 
     -- Generate cubemaps where needed
-    if not view.generatingReflectionMapForObject then
-        for id, object in view.objects.needsCubemap:iter() do
-            if object.needsCubemap and not object == view.generatingReflectionMapForObject then 
-                self:generateCubemap(object, context)
-            end
+    for id, object in view.objects.needsCubemap:iter() do
+        if self:shouldGenerateCubemap(object, context) then 
+            self:generateCubemap(object, context)
         end
     end
 
@@ -366,6 +389,14 @@ function Renderer:drawContext(context)
     -- lovr.graphics.setColor(1, 0, 1, 1)
     -- local x, y, z = context.view.cameraPosition:unpack()
     -- lovr.graphics.box('fill', 0, 0, 0, 0.1, 0.1, 0.1)
+end
+
+
+function Renderer:shouldGenerateCubemap(object, context)
+    return
+        context.frame.cubemapLimit.count < context.frame.cubemapLimit.max and
+        object.needsCubemap and 
+        context.view.generatingReflectionMapForObject ~= object
 end
 
 function Renderer:drawObject(object, context)
@@ -419,20 +450,28 @@ function Renderer:generateCubemap(renderObject, context)
     local cubemapSize = context.cubemapSize or 1024
 
     if not cubemap then
+        print("NEW CM", context.frame.nr)
         local texture = lovr.graphics.newTexture(cubemapSize, cubemapSize, { 
             format = "rg11b10f",
             stereo = false,
             type = "cube"
         })
         local canvas = lovr.graphics.newCanvas(texture, { stereo = false })
-        cubemap = { texture = texture, canvas = canvas }
+        cubemap = { 
+            texture = texture,
+            canvas = canvas,
+            source = {}
+        }
         renderObject.reflectionMap = cubemap
     end
 
+    cubemap.source.frameNr = context.frame.nr
+
     context.stats.generatedCubemaps = context.stats.generatedCubemaps + 1
     context.frame.cubemapDepth = context.frame.cubemapDepth + 1
+    context.frame.cubemapLimit.count = context.frame.cubemapLimit.count + 1
     context.stats.maxReflectionDepth = math.max(context.stats.maxReflectionDepth, context.frame.cubemapDepth)
-
+    table.insert(context.stats.cubemapTargets, renderObject.id)
     -- remove this object from needing cubemaps
     context.frame.objects.needsCubemap[renderObject.id] = nil
     context.view.objects.needsCubemap[renderObject.id] = nil
@@ -441,6 +480,7 @@ function Renderer:generateCubemap(renderObject, context)
 	local view = { lovr.graphics.getViewPose(1) }
 	local proj = { lovr.graphics.getProjection(1) }
     local farPlane = self:dynamicCubemapFarPlane(renderObject, context)
+    cubemap.source.lod = farPlane
 	lovr.graphics.setProjection(1, mat4():perspective(0.1, farPlane, math.pi/2, 1))
     lovr.graphics.setShader(self.cubemapShader)
     
