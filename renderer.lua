@@ -479,7 +479,11 @@ function Renderer:generateCubemap(renderObject, context)
     
 	local view = { lovr.graphics.getViewPose(1) }
 	local proj = { lovr.graphics.getProjection(1) }
-    local farPlane = self:dynamicCubemapFarPlane(renderObject, context)
+    -- local farPlane = self:dynamicCubemapFarPlane(renderObject, context)
+    -- TODO: dynamic farplane did not work when you are INSIDE models as they will be clipped
+    -- Need to adjust it to `if inside an AABB set farplane to furthest corner of its
+    -- and then only include x number of objects in draw instead. Or just do that instead of clipping
+    local farPlane = 1000
     cubemap.source.lod = farPlane
 	lovr.graphics.setProjection(1, mat4():perspective(0.1, farPlane, math.pi/2, 1))
     lovr.graphics.setShader(self.cubemapShader)
