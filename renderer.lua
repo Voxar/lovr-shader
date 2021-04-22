@@ -34,6 +34,8 @@ function Renderer:_init()
     self.viewCount = 0
     self.lastFrameNumber = 0
 
+    self.cubemapPool = {}
+
     self.drawLayer = {
         names = {
             "albedo",
@@ -54,6 +56,7 @@ function Renderer:_init()
         only   = nil,
     }
 
+    -- self.debug = "distance"
     self.defaultEnvironmentMap = nil
 end
 
@@ -163,7 +166,8 @@ function Renderer:prepareFrame(context)
     frame.cubemapDepth = 0
     frame.cubemapLimit = { 
         count = 0, 
-        max = is_desktop and 2 or 0
+        max = is_desktop and 2 or 0,
+        maxDepth = is_desktop and 1 or 1,
     }
 
     frame.prepared = true
@@ -200,8 +204,10 @@ function Renderer:prepareView(context)
     end
 
     
-    local x, y, z = view.modelView:unpack()
+    -- local x, y, z = view.modelView:unpack()
+    local x, y, z = lovr.headset.getPose()
     view.cameraPosition = lovr.math.newVec3(x, y, z)
+    print(view.cameraPosition)
     view.modelViewProjection = lovr.math.newMat4(view.projection * view.modelView)
     view.frustum = self:getFrustum(view.modelViewProjection)
 
@@ -250,6 +256,18 @@ function Renderer:prepareObjects(context)
         renderObject.hasTransformed = not renderObject.position or renderObject.position:distance(object.position) > 0.0001
         renderObject.lastPosition:set(renderObject.position)
         renderObject.position:set(object.position)
+
+        -- TODO: smarts based on changes in material
+        if object.material then
+            renderObject.material = {}
+            renderObject.material.roughness = object.material.roughness or 1
+            renderObject.material.metalness = object.material.metalness or 1
+        else
+            renderObject.material = {
+                roughness = 1,
+                metalness = 1,
+            }
+        end
         
         -- AABB derivates
         local AABB = object.AABB
@@ -268,6 +286,7 @@ function Renderer:prepareObjects(context)
             vector = vectorToCamera,
             distance = distanceToCamera
         }
+        -- print(object.id, view.cameraPosition - renderObject.AABB.center)
 
         if self:cullTest(renderObject, context) then
             -- object skipped for this pass
@@ -289,7 +308,7 @@ function Renderer:prepareObjects(context)
             return view.objectToCamera[a].distance < view.objectToCamera[b].distance
         end)
 
-        if context.view.generatingReflectionMapForObject then 
+        if context.frame.cubemapDepth >= context.frame.cubemapLimit.maxDepth then
             view.objects.needsCubemap = OrderedMap()
         else
             -- Get a sorted list of need cubemaps
@@ -301,12 +320,14 @@ function Renderer:prepareObjects(context)
                 local b = list[bid]
                 assert(a and b)
                 local a_score = scores[aid] or (
-                        (view.objectToCamera[aid].distance) * -- smaller is better
-                        (a.reflectionMap and (frame.nr - a.reflectionMap.source.frameNr) or frame.nr) -- larger is better
+                        1/(view.objectToCamera[aid].distance * view.objectToCamera[aid].distance) -- smaller is better
+                        * (a.reflectionMap and (frame.nr - a.reflectionMap.source.frameNr) or frame.nr) -- larger is better
+                        * (1.1 - a.material.roughness)
                 )
                 local b_score = scores[bid] or (
-                        (view.objectToCamera[bid].distance) * -- smaller is better
-                        (b.reflectionMap and (frame.nr - b.reflectionMap.source.frameNr) or frame.nr) -- larger is better
+                        1/(view.objectToCamera[bid].distance * view.objectToCamera[bid].distance) -- smaller is better
+                        * (b.reflectionMap and (frame.nr - b.reflectionMap.source.frameNr) or frame.nr) -- larger is better
+                        * (1.1 - a.material.roughness)
                 )
                 
                 scores[aid] = a_score
@@ -395,7 +416,7 @@ function Renderer:shouldGenerateCubemap(object, context)
     return
         context.frame.cubemapLimit.count < context.frame.cubemapLimit.max and
         object.needsCubemap and 
-        context.view.generatingReflectionMapForObject ~= object
+        context.frame.cubemapDepth < context.frame.cubemapLimit.maxDepth
 end
 
 function Renderer:drawObject(object, context)
@@ -415,6 +436,14 @@ function Renderer:drawObject(object, context)
     self:prepareShaderForObject(object, context)
     lovr.graphics.setColor(1,1,1,1)
     context.stats.drawnObjects = context.stats.drawnObjects + 1
+
+    if self.debug == "distance" then
+        lovr.graphics.setShader()
+        local d = context.views[1].objectToCamera[object.id].distance/10
+        print(object.id, context.views[1].objectToCamera[object.id].distance)
+        lovr.graphics.setColor(d, d, d, 1)
+    end
+
     object.source.draw(object, context)
     
     if context.drawAABB then
@@ -547,7 +576,7 @@ end
 function Renderer:prepareShaderForObject(object, context)
     local shader = lovr.graphics.getShader()
     if not shader then return end
-    local material = object.source.material or {}
+    local material = object.material
     shader:send("alloMetalness", material.metalness or 1)
     shader:send("alloRoughness", material.roughness or 1)
 
@@ -665,4 +694,35 @@ function Renderer:dynamicCubemapFarPlane(object, context)
     local k = min + max * factor
     local result = math.min(math.max(min, k), max)
     return result
+end
+
+function Renderer:borrowCubemap(lod, context)
+    local best = nil
+    local bestDistance = nil
+    local bestIndex = nil
+    local frame = context.frame
+    local pool = frame.cubemapPool
+
+    for i, map in ipairs(pool) do
+        if map.lod == lod then
+            best = map
+            bestIndex = i
+            goto done
+        elseif not best then
+            best = map
+            bestIndex = i
+            bestDistance = math.abs(map.lod - lod)
+        else
+            local dist = math.abs(map.lod - lod)
+            if dist < bestDistance then
+                best = map
+                bestDistance = dist
+            end
+        end
+        ::done::
+        if best then
+            table.remove(pool, bestIndex)
+        end
+        return best
+    end
 end
