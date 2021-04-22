@@ -169,14 +169,15 @@ vec4 color(vec4 graphicsColor, sampler2D image, vec2 uv) {
     float metalness = texture(lovrMetalnessTexture, lovrTexCoord).b * lovrMetalness * alloMetalness;
 
     #ifdef FLAG_debug
-        float occlusion *= draw_occlusion;
-        float roughness *= draw_roughness;
-        float metalness *= draw_metalness;
+        float raw_roughness = roughness;
+        float raw_metalness = metalness;
+        roughness *= draw_roughness;
+        metalness *= draw_metalness;
     #endif
-
     // Reflectance at normal incidence. F0.
     // dia-electric use 0.04 and if it's metal then use the albedo color
     #ifdef FLAG_debug
+
     vec3 baseColor = vec3(1.);
     if (draw_albedo > 0.) 
         baseColor = albedo;
@@ -186,18 +187,14 @@ vec4 color(vec4 graphicsColor, sampler2D image, vec2 uv) {
     #endif
 
     float NdotV = max(dot(N, V), 0.001);
-
     vec3 luminence = vec3(0.0); // Lo
-    debug(vec3 diffuse = vec3(0.))
+    debug(vec3 diffuse = vec3(0.);)
     debug(vec3 specular = vec3(0.);)
-    debug(if(draw_lights > 0.))
-    // if(0==1)
     #ifdef FLAG_lights
+    debug(if(draw_lights > 0.))
     for(int i_light = 0; i_light < lightCount; i_light++) {
         vec3 lightPos = lightPositions[i_light].xyz;
         vec3 lightColor = lightColors[i_light].rgb;
-        // lightColor = vec3(1.0);
-        lightColor *= 1.;
 
         vec3 L = normalize(lightPos - vFragmentPos);
         vec3 H = normalize(V + L);
@@ -304,8 +301,8 @@ vec4 color(vec4 graphicsColor, sampler2D image, vec2 uv) {
 
 #ifdef FLAG_debug
     if (only_albedo > 0.) return vec4(vec3(albedo), 1.0);
-    if (only_metalness > 0.) return vec4(vec3(metalness), 1.0);
-    if (only_roughness > 0.) return vec4(vec3(roughness), 1.0);
+    if (only_metalness > 0.) return vec4(vec3(raw_metalness), 1.0);
+    if (only_roughness > 0.) return vec4(vec3(raw_roughness), 1.0);
     if (only_diffuseEnv > 0.) return vec4(vec3(environmentDiffuse), 1.0);
     if (only_specularEnv > 0.) return vec4(vec3(environmentSpecular), 1.0);
     if (only_diffuseLight > 0.) return vec4(vec3(diffuse), 1.0);

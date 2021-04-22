@@ -71,7 +71,8 @@ function Shader:generate(options)
         stereo = options.stereo,
         flags = {
             highp = true,
-            lights = options.lights
+            lights = options.lights,
+            debug = options.debug
         }
     })
     shader:sendBlock('Lights', self.lightsBlock)

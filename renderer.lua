@@ -20,7 +20,7 @@ function Renderer:_init()
     self.cache = {}
 
     self.shaderObj = Shader()
-    self.shader = self.shaderObj:generate({lights = true})
+    self.shader = self.shaderObj:generate({lights = true, debug = is_desktop})
     self.cubemapShader = self.shaderObj:generate({stereo = false, lights = false})
 
     self.standardShaders = {
@@ -561,8 +561,7 @@ function Renderer:prepareShaderForFrame(shader, context)
         table.insert(positions, {x, y, z})
         table.insert(colors, light.source.light.color)
     end
-    self.lightsBlock:send('lightCount', 1)
-    -- self.lightsBlock:send('lightCount', #positions)
+    self.lightsBlock:send('lightCount', #positions)
     self.lightsBlock:send('lightColors', colors)
     self.lightsBlock:send('lightPositions', positions)
 
