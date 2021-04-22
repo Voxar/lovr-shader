@@ -239,7 +239,7 @@ for roughness = 1, count.x do
                 metalness = (metalness-1) / (count.y-1),
             },
             draw = function(object, context)
-                lovr.graphics.setColor(1, 1, 1, 1)
+                -- lovr.graphics.setColor(1, 1, 1, 1)
                 local x, y, z = object.position:unpack()
                 lovr.graphics.sphere(x, y, z, 0.4)
             end,

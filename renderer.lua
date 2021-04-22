@@ -204,10 +204,15 @@ function Renderer:prepareView(context)
     end
 
     
-    -- local x, y, z = view.modelView:unpack()
-    local x, y, z = lovr.headset.getPose()
-    view.cameraPosition = lovr.math.newVec3(x, y, z)
-    print(view.cameraPosition)
+    if view.nr == 1 then 
+        -- viewModel is not equal to camera position. 
+        -- Use it for the subpasses for now but use headset pose for frame
+        local x, y, z = lovr.headset.getPose()
+        view.cameraPosition = lovr.math.newVec3(x, y, z)
+    else
+        local x, y, z = view.modelView:unpack()
+        view.cameraPosition = lovr.math.newVec3(-x, -y, -z)
+    end
     view.modelViewProjection = lovr.math.newMat4(view.projection * view.modelView)
     view.frustum = self:getFrustum(view.modelViewProjection)
 
