@@ -40,13 +40,14 @@ local font = lovr.graphics.newFont(128)  -- Font appropriate for screen-space us
 font:setFlipEnabled(true)
 font:setPixelDensity(1)
 
+if not model then 
+    model = lovr.graphics.newModel("bkd_main room_shell.glb")
+    torso = lovr.graphics.newModel("torso.glb")
+    helmet = lovr.graphics.newModel("helmet.glb")
+end
+
 function lovr.load()
     renderer = Renderer()
-    if not model then 
-        model = lovr.graphics.newModel("bkd_main room_shell.glb")
-        torso = lovr.graphics.newModel("torso.glb")
-        helmet = lovr.graphics.newModel("helmet.glb")
-    end
 
     lovr.graphics.setBackgroundColor(.18, .18, .20)
     lovr.graphics.setCullingEnabled(true)
@@ -72,6 +73,13 @@ function all(k, t)
   return r
 end
 
+function getAABB(model)
+    local minx, maxx, miny, maxy, minz, maxz = model:getAABB()
+    return {
+        min = newVec3(minx, miny, minz),
+        max = newVec3(maxx, maxy, maxz)
+    }
+end
 time = 0
 
 
@@ -80,8 +88,8 @@ house = {
     visible = true,
     position = newVec3(0,0,0),
     AABB = {
-        min = newVec3(-10, -10, -10), 
-        max = newVec3(10, 10, 10), 
+        min = newVec3(getAABB(model).min * 2.5),
+        max = newVec3(getAABB(model).max * 2.5)
     },
     draw = function(object, context)
         lovr.graphics.setColor(1, 1, 1, 1)
@@ -95,10 +103,7 @@ head = {
     id = "head",
     visible = true,
     position = newVec3(0,0,0),
-    AABB = {
-        min = newVec3(-10, -10, -10),
-        max = newVec3(10, 10, 10),
-    },
+    AABB = getAABB(helmet),
     draw = function(object, context)
         if context.view.nr > 0 then 
             local x, y, z, a, ax, ay, az = lovr.headset.getPose()
@@ -126,8 +131,8 @@ scenes.mirror = {
         id = "mirror",
         position = newVec3(0,1,-6),
         AABB = {
-            min = newVec3(-1, -3.5, -0.05),
-            max = newVec3(1, 3.5, 0.05),
+            min = newVec3(-3.5, -1, -0.05),
+            max = newVec3(3.5, 1, 0.05),
         },
         draw = function (self, context)
             local x, y, z = self.position:unpack()
@@ -144,8 +149,8 @@ scenes.mirror = {
         id = "border",
         position = newVec3(0,1,-6),
         AABB = {
-            min = newVec3(-1, -3.5, -0.05),
-            max = newVec3(1, 3.5, 0.05),
+            min = newVec3(-3.5, -1, -0.05),
+            max = newVec3(3.5, 1, 0.05),
         },
         draw = function (self, context)
             local x, y, z = self.position:unpack()
@@ -168,8 +173,8 @@ scenes.helm = {
         id = "sphere1",
         position = newVec3(-1.2, 1.7, -3),
         AABB = {
-            min = newVec3(-0.5, -0.5, -0.5), 
-            max = newVec3(0.5, 0.5, 0.5), 
+            min = newVec3(-0.5, -0.5, -0.5),
+            max = newVec3(0.5, 0.5, 0.5),
         },
         draw = function(object, context)
             lovr.graphics.setColor(1, 0.5, 0.5, 1)
@@ -190,10 +195,7 @@ scenes.helm = {
     helmet = {
         id = "helmet",
         position = newVec3(0, 1.7, -3),
-        AABB = {
-            min = newVec3(-0.5, -0.5, -0.5), 
-            max = newVec3(0.5, 0.5, 0.5), 
-        },
+        AABB = getAABB(helmet),
         draw = function(object, context)
             lovr.graphics.setColor(1, 1, 1, 1)
             local x, y, z = object.position:unpack()
@@ -263,10 +265,7 @@ scenes.avatar = {
     torso = {
         id = "torso",
         position = newVec3(0, 1.2, -1),
-        AABB = {
-            min = newVec3(-0.5, -0.5, -0.5), 
-            max = newVec3(0.5, 0.5, 0.5), 
-        },
+        AABB = getAABB(avatar.torso),
         draw = function(object, context)
             local x, y, z = object.position:unpack()
             avatar.torso:draw(x, y, z)
@@ -279,10 +278,7 @@ scenes.avatar = {
     head = {
         id = "head",
         position = newVec3(0, 1.7, -1),
-        AABB = {
-            min = newVec3(-0.5, -0.5, -0.5), 
-            max = newVec3(0.5, 0.5, 0.5), 
-        },
+        AABB = getAABB(avatar.head),
         draw = function(object, context)
             local x, y, z = object.position:unpack()
             avatar.head:draw(x, y, z)
@@ -297,10 +293,7 @@ scenes.avatar = {
     left = {
         id = "left",
         position = newVec3(0.2, 1.4, -0.8),
-        AABB = {
-            min = newVec3(-0.5, -0.5, -0.5), 
-            max = newVec3(0.5, 0.5, 0.5), 
-        },
+        AABB = getAABB(avatar.left),
         draw = function(object, context)
             local x, y, z = object.position:unpack()
             avatar.left:draw(x, y, z)
@@ -315,10 +308,7 @@ scenes.avatar = {
     right = {
         id = "right",
         position = newVec3(-0.2, 1.4, -0.8),
-        AABB = {
-            min = newVec3(-0.5, -0.5, -0.5), 
-            max = newVec3(0.5, 0.5, 0.5), 
-        },
+        AABB = getAABB(avatar.right),
         draw = function(object, context)
             local x, y, z = object.position:unpack()
             avatar.right:draw(x, y, z)

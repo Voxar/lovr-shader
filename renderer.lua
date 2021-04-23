@@ -344,20 +344,14 @@ function Renderer:prepareObjects(context)
             view.objects.needsCubemap = OrderedMap(frame.objects.needsCubemap)
             local list = view.objects.needsCubemap
             local scores = {}
+            local distanceTo = self.distanceToObject
+            local getScore = self.objectCubemapScore
             view.objects.needsCubemap:sort(function(aid, bid)
                 local a = list[aid]
                 local b = list[bid]
                 assert(a and b)
-                local a_score = scores[aid] or (
-                        1/(view.objectToCamera[aid].distance * view.objectToCamera[aid].distance) -- smaller is better
-                        * (a.reflectionMap and (frame.nr - a.reflectionMap.source.frameNr) or frame.nr) -- larger is better
-                        * (1.1 - a.material.roughness)
-                )
-                local b_score = scores[bid] or (
-                        1/(view.objectToCamera[bid].distance * view.objectToCamera[bid].distance) -- smaller is better
-                        * (b.reflectionMap and (frame.nr - b.reflectionMap.source.frameNr) or frame.nr) -- larger is better
-                        * (1.1 - a.material.roughness)
-                )
+                local a_score = scores[aid] or getScore(self, a, context)
+                local b_score = scores[bid] or getScore(self, b, context)
                 
                 scores[aid] = a_score
                 scores[bid] = b_score
@@ -365,6 +359,14 @@ function Renderer:prepareObjects(context)
             end)
         end
     end
+end
+
+function Renderer:objectCubemapScore(object, context)
+    local distanceToCamera = context.view.objectToCamera[object.id].distance - object.AABB.radius
+    local frameNr = context.frame.nr
+    return  1/(distanceToCamera * distanceToCamera) -- smaller is better
+            * (object.reflectionMap and (frameNr - object.reflectionMap.source.frameNr) or frameNr) -- larger is better
+            * (1.1 - object.material.roughness)
 end
 
 function Renderer:prepareObject(renderObject, context, prepareFrameObjects, prepareViewObjects)
@@ -398,7 +400,6 @@ function Renderer:prepareObject(renderObject, context, prepareFrameObjects, prep
         else
 
             if object.hasTransparency then
-                -- print("Adding to transp " .. object.id)
                 insert(view.objects.transparent, renderObject)
             else
                 insert(view.objects.opaque, renderObject)
@@ -471,7 +472,6 @@ function Renderer:drawObject(object, context)
     if self.debug == "distance" then
         lovr.graphics.setShader()
         local d = context.views[1].objectToCamera[object.id].distance/10
-        -- print(object.id, context.views[1].objectToCamera[object.id].distance)
         lovr.graphics.setColor(d, d, d, 1)
     end
 
@@ -557,9 +557,6 @@ function Renderer:generateCubemap(renderObject, context)
     local maxDistance = self:dynamicCubemapFarPlane(renderObject, context)
 
     local objects = self:objectsWithinDistanceOf(context.frame.renderObjects, center, maxDistance, context)
-    if renderObject.id == "ball 11" then 
-        print("dist", renderObject.id, maxDistance, #objects)
-    end
 	for i,pose in ipairs{
 		lookAt(center, center + vec3(1,0,0), vec3(0,-1,0)),
 		lookAt(center, center - vec3(1,0,0), vec3(0,-1,0)),
@@ -646,24 +643,11 @@ function Renderer:objectsWithinDistanceOf(renderObjects, position, distance, con
     local result = {}
     if distance < 0 then return result end
     for i, object in ipairs(renderObjects) do
-        -- skip if position is inside object
-
-        local length = position:distance(object.AABB.center)-- + object.AABB.radius
-        if not self:pointInAABB(position, object.AABB) and (length < distance) then
+        local length = position:distance(object.AABB.center) - object.AABB.radius
+        if (length < distance) then
             table.insert(result, object)
         end
-
-        -- local aabb = object.AABB
-        -- local px, py, pz = position:unpack()
-        -- local minx, miny, minz = (aabb.center - aabb.min):unpack()
-        -- local maxx, maxy, maxz = (aabb.center + aabb.max):unpack()
-
-        -- if (px > minx and py > miny and pz > minz) and (px < maxx and py < maxy and pz < maxz) then
-        --     table.insert(result, object)
-        -- end
     end
-    -- print(#result, #renderObjectIter)
-
     return result
 end
 
@@ -689,7 +673,6 @@ function Renderer:cullTest(renderObject, context)
     --     return true
     -- end
 
-    -- print(renderObject.distanceToCamera)
     
     local frustum = context.view.frustum
     for i = 1, 6 do -- 5 because skipping far plane as handled above
@@ -762,12 +745,18 @@ function Renderer:getFrustum(mat)
     return planes
 end
 
+
+function Renderer:distanceToObject(object, fromPosition, context)
+    local aabb = object.AABB
+    return fromPosition:distance(aabb.center) - aabb.radius
+end
+
 function Renderer:dynamicCubemapFarPlane(object, context)
     -- TODO: something exponential so detail near max creep up slowly and near min faster
     local min = object.AABB.radius
     local max = object.AABB.radius + context.cubemapFarPlane
     local distanceToCamera = context.views[1].objectToCamera[object.id].distance
-    local factor = 1 - (distanceToCamera / max)
+    local factor = (1 - (distanceToCamera / (max-min))) * object.material.roughness
     local k = min + max * factor
     local result = math.min(math.max(min, k), max)
     return result
