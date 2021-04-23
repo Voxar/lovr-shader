@@ -82,7 +82,7 @@ end
 -- }
 function Renderer:render(objects, options)
     local context = options or {}
-    context.objects = objects
+    context.sourceObjects = objects
     context.stats = {
         views = 0, -- number of passes rendered
         drawnObjects = 0, -- number of objects drawn (counts same object each pass)
@@ -209,7 +209,7 @@ function Renderer:prepareView(context)
         -- Use it for the subpasses for now but use headset pose for frame
         local x, y, z = lovr.headset.getPose()
         view.cameraPosition = lovr.math.newVec3(x, y, z)
-    else
+    elseif not view.cameraPosition then
         local x, y, z = view.modelView:unpack()
         view.cameraPosition = lovr.math.newVec3(-x, -y, -z)
     end
@@ -228,6 +228,8 @@ function Renderer:prepareObjects(context)
     local frame = context.frame
     local view = context.view
 
+
+    -- .objects : table of sorted tables of objects to include in the render
     local prepareFrameObjects = frame.objects == nil
     local prepareViewObjects = view.objects == nil
 
@@ -245,72 +247,94 @@ function Renderer:prepareObjects(context)
         }
     end
 
-    for i, object in ipairs(context.objects) do
-        local renderObject = self.cache[object.id]
-        if not renderObject then 
-            renderObject = { 
-                id = object.id,
-                position = lovr.math.newVec3(),
-                lastPosition = lovr.math.newVec3(999999, 9999999),
+    -- Objects that we pick from are either
+    --  view.sourceObjects: a previous pass has pre-culled renderObjects to work with
+    --  frame.sourceObjects: there was a culling pass at frame level. These are source objects
+    --  context.sourceObjects: all the source objects passed to self:render
+    local renderObjects = nil
+    if view.renderObjects then
+        renderObjects = view.renderObjects
+    elseif frame.renderObjects then
+        renderObjects = frame.renderObjects
+    end
+
+    if renderObjects then
+        for i, renderObject in ipairs(renderObjects) do
+            -- Precalculate object vector and distance to camera
+            local vectorToCamera = view.cameraPosition - renderObject.AABB.center
+            local distanceToCamera = vectorToCamera:length()
+            view.objectToCamera[renderObject.id] = {
+                vector = vectorToCamera,
+                distance = distanceToCamera
             }
-            self.cache[object.id] = renderObject
-        end
-        renderObject.source = object
 
-        --TODO: find a quicker way
-        renderObject.hasTransformed = not renderObject.position or renderObject.position:distance(object.position) > 0.0001
-        renderObject.lastPosition:set(renderObject.position)
-        renderObject.position:set(object.position)
+            self:prepareObject(renderObject, context, prepareFrameObjects, prepareViewObjects)
+        end    
+    else
+        for i, object in ipairs(context.sourceObjects) do
+            local renderObject = self.cache[object.id]
+            if not renderObject then
+                renderObject = { 
+                    id = object.id,
+                    position = lovr.math.newVec3(),
+                    lastPosition = lovr.math.newVec3(999999, 9999999),
+                }
+                self.cache[object.id] = renderObject
+            end
+            renderObject.source = object
 
-        -- TODO: smarts based on changes in material
-        if object.material then
-            renderObject.material = {}
-            renderObject.material.roughness = object.material.roughness or 1
-            renderObject.material.metalness = object.material.metalness or 1
-        else
-            renderObject.material = {
-                roughness = 1,
-                metalness = 1,
+            --TODO: find a quicker way
+            renderObject.hasTransformed = not renderObject.position or renderObject.position:distance(object.position) > 0.0001
+            renderObject.lastPosition:set(renderObject.position)
+            renderObject.position:set(object.position)
+
+            -- TODO: smarts based on changes in material
+            if object.material then
+                renderObject.material = {}
+                renderObject.material.roughness = object.material.roughness or 1
+                renderObject.material.metalness = object.material.metalness or 1
+            else
+                renderObject.material = {
+                    roughness = 1,
+                    metalness = 1,
+                }
+            end
+            
+            -- AABB derivates
+            local AABB = object.AABB
+            local minmaxdiv2 = (AABB.max - AABB.min) / 2
+            renderObject.AABB = {
+                min = lovr.math.newVec3(AABB.min),
+                max = lovr.math.newVec3(AABB.max),
+                center = lovr.math.newVec3(object.position + AABB.min + minmaxdiv2),
+                radius = minmaxdiv2:length(),
             }
-        end
-        
-        -- AABB derivates
-        local AABB = object.AABB
-        local minmaxdiv2 = (AABB.max - AABB.min) / 2
-        renderObject.AABB = {
-            min = lovr.math.newVec3(AABB.min),
-            max = lovr.math.newVec3(AABB.max),
-            center = lovr.math.newVec3(object.position + AABB.min + minmaxdiv2),
-            radius = minmaxdiv2:length(),
-        }
 
-        -- Precalculate object vector and distance to camera
-        local vectorToCamera = view.cameraPosition - renderObject.AABB.center
-        local distanceToCamera = vectorToCamera:length()
-        view.objectToCamera[object.id] = {
-            vector = vectorToCamera,
-            distance = distanceToCamera
-        }
-        -- print(object.id, view.cameraPosition - renderObject.AABB.center)
+            -- Precalculate object vector and distance to camera
+            local vectorToCamera = view.cameraPosition - renderObject.AABB.center
+            local distanceToCamera = vectorToCamera:length()
+            view.objectToCamera[object.id] = {
+                vector = vectorToCamera,
+                distance = distanceToCamera
+            }
 
-        if self:cullTest(renderObject, context) then
-            -- object skipped for this pass
-            context.stats.culledObjects = context.stats.culledObjects + 1
-        else
-            renderObject.culledLastFrame = false
             self:prepareObject(renderObject, context, prepareFrameObjects, prepareViewObjects)
         end
     end
 
     
     if prepareFrameObjects then
-        
+        assert(view.nr == 1)
     end
 
     if prepareViewObjects then
         local list = view.objectToCamera
         view.objects.transparent:sort(function(a, b)
             return view.objectToCamera[a].distance < view.objectToCamera[b].distance
+        end)
+
+        view.objects.opaque:sort(function(a, b)
+            return view.objectToCamera[a].distance > view.objectToCamera[b].distance
         end)
 
         if context.frame.cubemapDepth >= context.frame.cubemapLimit.maxDepth then
@@ -339,16 +363,9 @@ function Renderer:prepareObjects(context)
                 scores[bid] = b_score
                 return a_score > b_score
             end)
-            for id, object in view.objects.needsCubemap:iter() do
-                local score = scores[id]
-                if score then 
-                    table.insert(context.stats.debugText, id .. ": " .. score)
-                end
-            end
         end
     end
 end
-
 
 function Renderer:prepareObject(renderObject, context, prepareFrameObjects, prepareViewObjects)
     local object = renderObject.source
@@ -369,14 +386,23 @@ function Renderer:prepareObject(renderObject, context, prepareFrameObjects, prep
             renderObject.needsCubemap = true
             insert(frame.objects.needsCubemap, renderObject)
         end
+
+        frame.renderObjects = frame.renderObjects or {}
+        table.insert(frame.renderObjects, renderObject)
     end
     
     if prepareViewObjects then
-        if object.hasTransparency then
-            -- print("Adding to transp " .. object.id)
-            insert(view.objects.transparent, renderObject)
+        if self:cullTest(renderObject, context) then
+            -- object skipped for this pass
+            context.stats.culledObjects = context.stats.culledObjects + 1
         else
-            insert(view.objects.opaque, renderObject)
+
+            if object.hasTransparency then
+                -- print("Adding to transp " .. object.id)
+                insert(view.objects.transparent, renderObject)
+            else
+                insert(view.objects.opaque, renderObject)
+            end
         end
     end
 end
@@ -445,7 +471,7 @@ function Renderer:drawObject(object, context)
     if self.debug == "distance" then
         lovr.graphics.setShader()
         local d = context.views[1].objectToCamera[object.id].distance/10
-        print(object.id, context.views[1].objectToCamera[object.id].distance)
+        -- print(object.id, context.views[1].objectToCamera[object.id].distance)
         lovr.graphics.setColor(d, d, d, 1)
     end
 
@@ -522,8 +548,18 @@ function Renderer:generateCubemap(renderObject, context)
 	lovr.graphics.setProjection(1, mat4():perspective(0.1, farPlane, math.pi/2, 1))
 
     lovr.graphics.setShader(self.cubemapShader)
+
     
 	local center = renderObject.AABB.center
+    -- Get a list of objects that are within a distance based on cm quality
+
+    local maxDistance = 10 - context.views[1].objectToCamera[renderObject.id].distance-- self:dynamicCubemapFarPlane(renderObject, context)
+    local maxDistance = self:dynamicCubemapFarPlane(renderObject, context)
+
+    local objects = self:objectsWithinDistanceOf(context.frame.renderObjects, center, maxDistance, context)
+    if renderObject.id == "ball 11" then 
+        print("dist", renderObject.id, maxDistance, #objects)
+    end
 	for i,pose in ipairs{
 		lookAt(center, center + vec3(1,0,0), vec3(0,-1,0)),
 		lookAt(center, center - vec3(1,0,0), vec3(0,-1,0)),
@@ -540,7 +576,9 @@ function Renderer:generateCubemap(renderObject, context)
 			lovr.graphics.clear(r, g, b, a, 1, 0)
 			lovr.graphics.setViewPose(1, pose, true)
             self:renderView(context, {
-                generatingReflectionMapForObject = renderObject
+                generatingReflectionMapForObject = renderObject,
+                cameraPosition = center,
+                renderObjects = objects
             })
 		end)
         lovr.math.drain()
@@ -596,9 +634,44 @@ function Renderer:prepareShaderForObject(object, context)
     end
 end
 
+function Renderer:pointInAABB(point, aabb)
+    local px, py, pz = point:unpack()
+    local minx, miny, minz = (aabb.center + aabb.min):unpack()
+    local maxx, maxy, maxz = (aabb.center + aabb.max):unpack()
+    return (px > minx and py > miny and pz > minz) and (px < maxx and py < maxy and pz < maxz)
+end
+
+-- Returns a new list of renderObjects from `renderObjects` that are within `distance` of `position`
+function Renderer:objectsWithinDistanceOf(renderObjects, position, distance, context)
+    local result = {}
+    if distance < 0 then return result end
+    for i, object in ipairs(renderObjects) do
+        -- skip if position is inside object
+
+        local length = position:distance(object.AABB.center)-- + object.AABB.radius
+        if not self:pointInAABB(position, object.AABB) and (length < distance) then
+            table.insert(result, object)
+        end
+
+        -- local aabb = object.AABB
+        -- local px, py, pz = position:unpack()
+        -- local minx, miny, minz = (aabb.center - aabb.min):unpack()
+        -- local maxx, maxy, maxz = (aabb.center + aabb.max):unpack()
+
+        -- if (px > minx and py > miny and pz > minz) and (px < maxx and py < maxy and pz < maxz) then
+        --     table.insert(result, object)
+        -- end
+    end
+    -- print(#result, #renderObjectIter)
+
+    return result
+end
+
+-- returning true means the object is culled and not rendered.
 function Renderer:cullTest(renderObject, context)
+
     -- never cull some types
-    if renderObject.source.light then 
+    if renderObject.source.light then
         return false
     end
 

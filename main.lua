@@ -102,10 +102,11 @@ head = {
     draw = function(object, context)
         if context.view.nr > 0 then 
             local x, y, z, a, ax, ay, az = lovr.headset.getPose()
-            
+            x, y, z = object.position:unpack()
             lovr.graphics.push()
-            lovr.graphics.rotate(math.pi, 0, 1, 0)
-            helmet:draw(x, y, z, 1, a, ax, ay, az)
+            -- lovr.graphics.rotate(math.pi, 0, 1, 0)
+            -- helmet:draw(x, y, z, 1, a, ax, ay, az)
+            helmet:draw(x, y, z)
             lovr.graphics.pop()
         end
     end,
@@ -115,6 +116,9 @@ head = {
 
 scenes = {}
 
+scenes.head = {
+    head = head
+}
 scenes.mirror = {
     head = head,
     house = house,
