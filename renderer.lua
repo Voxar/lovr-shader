@@ -399,7 +399,7 @@ function Renderer:prepareObject(renderObject, context, prepareFrameObjects, prep
             context.stats.culledObjects = context.stats.culledObjects + 1
             insert(view.objects.culled, renderObject)
         else
-            if renderObject.needsCubemap then 
+            if renderObject.needsCubemap then
                 insert(view.objects.needsCubemap, renderObject)
             end
             if object.hasTransparency then
@@ -534,13 +534,16 @@ function Renderer:generateCubemap(renderObject, context)
             stereo = not is_desktop,
             type = "cube"
         })
-        local canvas = lovr.graphics.newCanvas(texture, { stereo = not is_desktop })
         cubemap = { 
             texture = texture,
-            canvas = canvas,
             source = {}
         }
         renderObject.reflectionMap = cubemap
+    end
+    local canvas = self.cubemapCanvas
+    if not canvas then
+        canvas = lovr.graphics.newCanvas(cubemap.texture, { stereo = not is_desktop })
+        self.cubemapCanvas = canvas
     end
 
     cubemap.source.frameNr = context.frame.nr
@@ -583,8 +586,6 @@ function Renderer:generateCubemap(renderObject, context)
 		lookAt(center, center + vec3(0,0,1), vec3(0,-1,0)),
 		lookAt(center, center - vec3(0,0,1), vec3(0,-1,0)),
 	} do
-		local canvas = cubemap.canvas
-        
 		canvas:setTexture(cubemap.texture, i)
 		canvas:renderTo(function ()
             local r,g,b,a = lovr.graphics.getBackgroundColor()
