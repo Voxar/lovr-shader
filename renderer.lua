@@ -244,6 +244,8 @@ function Renderer:prepareObjects(context)
         view.objects = {
             opaque = OrderedMap(),
             transparent = OrderedMap(),-- ordered furthest to nearest from camera
+            culled = OrderedMap(), -- objects not drawn this view
+            needsCubemap = OrderedMap(), -- objects that needs a fresh cubemap
         }
     end
 
@@ -340,11 +342,9 @@ function Renderer:prepareObjects(context)
         if context.frame.cubemapDepth >= context.frame.cubemapLimit.maxDepth then
             view.objects.needsCubemap = OrderedMap()
         else
-            -- Get a sorted list of need cubemaps
-            view.objects.needsCubemap = OrderedMap(frame.objects.needsCubemap)
+            -- Sort the list of objects needing cubemaps
             local list = view.objects.needsCubemap
             local scores = {}
-            local distanceTo = self.distanceToObject
             local getScore = self.objectCubemapScore
             view.objects.needsCubemap:sort(function(aid, bid)
                 local a = list[aid]
@@ -397,8 +397,11 @@ function Renderer:prepareObject(renderObject, context, prepareFrameObjects, prep
         if self:cullTest(renderObject, context) then
             -- object skipped for this pass
             context.stats.culledObjects = context.stats.culledObjects + 1
+            insert(view.objects.culled, renderObject)
         else
-
+            if renderObject.needsCubemap then 
+                insert(view.objects.needsCubemap, renderObject)
+            end
             if object.hasTransparency then
                 insert(view.objects.transparent, renderObject)
             else
@@ -498,6 +501,21 @@ local function lookAt(eye, at, up)
 	)
 end
 
+
+function Renderer:findCubemap(renderObject, context)
+    if renderObject.reflectionMap then
+        return renderObject.reflectionMap
+    end
+    -- Objects that were in last frame and are culled in this frame
+    for id, object in context.view.objects.culled:iter() do
+        if object.reflectionMap then
+            local map = object.reflectionMap
+            object.reflectionMap = nil
+            return map
+        end
+    end
+end
+
 --- Generates a cube map from the point of object
 function Renderer:generateCubemap(renderObject, context)
 
@@ -505,12 +523,12 @@ function Renderer:generateCubemap(renderObject, context)
         assert(false)
     end
 
-    local cubemap = renderObject.reflectionMap
+    local cubemap = renderObject.reflectionMap or self:findCubemap(renderObject, context)
     local cubemapSize = context.cubemapSize or 1024
 
 
     if not cubemap then
-        print("NEW CM", context.frame.nr)
+        print("New cm for " .. renderObject.id .. " in frame " .. context.frame.nr, cubemapSize .. "x" .. cubemapSize)
         local texture = lovr.graphics.newTexture(cubemapSize, cubemapSize, { 
             format = "rg11b10f",
             stereo = not is_desktop,

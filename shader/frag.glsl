@@ -176,8 +176,8 @@ vec4 color(vec4 graphicsColor, sampler2D image, vec2 uv) {
     #endif
     // Reflectance at normal incidence. F0.
     // dia-electric use 0.04 and if it's metal then use the albedo color
-    #ifdef FLAG_debug
 
+    #ifdef FLAG_debug
     vec3 baseColor = vec3(1.);
     if (draw_albedo > 0.) 
         baseColor = albedo;
@@ -225,22 +225,25 @@ vec4 color(vec4 graphicsColor, sampler2D image, vec2 uv) {
         debug(if (draw_albedo > 0.) )
             diff *= albedo;
         
+        
+        #ifdef FLAG_debug
+            diff /= PI;
+            diff *= radiance;
+            spec *= radiance;
+            // luminence += (diff / PI + spec) * radiance ; // modified for debugging
+            if (draw_specularLight > 0.)
+                luminence += spec;
+            if (draw_diffuseLight > 0.) 
+                luminence += diff;
+            
+            specular += spec;
+            diffuse += diff;
+        #else
         // diffuse * albedo because diffuse is the wavelengths (colors) not absorbed while refracting(?)
         // divided by PI ??
         // NdotL ??
-        
-        // luminence += (diff * albedo / PI + spec) * radiance * NdotL; // original
-        diff /= PI;
-        diff *= radiance;
-        spec *= radiance;
-        // luminence += (diff / PI + spec) * radiance ; // modified for debugging
-        debug(if (draw_specularLight > 0.) )
-            luminence += spec;
-        debug(if (draw_diffuseLight > 0.) )
-            luminence += diff;
-        
-        debug(specular += spec;)
-        debug(diffuse += diff;)
+        luminence += (diff * albedo / PI + spec) * radiance * NdotL; // original
+        #endif
     }
     #endif
     debug(diffuse /= float(lightCount);)
