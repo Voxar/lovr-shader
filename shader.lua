@@ -2,6 +2,7 @@
 
 local class = require 'pl.class'
 local lovr = lovr
+local is_desktop = lovr.headset.getDriver() == "desktop"
 
 Shader = class.Shader()
 
@@ -71,7 +72,7 @@ function Shader:generate(options)
         stereo = options.stereo,
         flags = {
             highp = true,
-            lights = options.lights,
+            lights = is_desktop, --options.lights,
             debug = options.debug
         }
     })

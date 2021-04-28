@@ -461,7 +461,11 @@ function lovr.draw()
     lovr.graphics.print(info2, 1.6, 1.85, 0, fontscale, 0, 0, 0, 0, 0, 'right', 'bottom')
 
 end
-
+print(lovr.filesystem.getSaveDirectory())
+function lovr.log(message, level, tag)
+    -- your code here
+    print("org.lovr.app " .. level .. ": " .. message)
+end
 
 keys = {"1", "2", "3", "4", "5", "6", "7", "8", "9", "0", "-", "=", "t", "y", "u", "i", "o", "p"}
 

@@ -64,7 +64,7 @@ vec3 environmentMap(vec3 direction) {
     return environmentMap(direction, 0.);
 }
 
-vec3 environmentMap(vec3 direction, float roughness) {
+vec3 environmentMap(vec3 direction, float roughness) { 
     if (alloEnvironmentMapType == 1) {
         // float mipmapCount = log2(float(textureSize(alloEnvironmentMapCube, 0).x));
         float mipmapCount = floor(log2(float(textureSize(alloEnvironmentMapCube, 0).x))) - 1.;
